@@ -1,0 +1,41 @@
+#!/usr/bin/python
+
+import scribe
+import sys
+import mmap
+import logging
+from optparse import OptionParser
+from mreplay.explorer import Explorer
+from mreplay.session import Session
+
+def configure_logging(level=logging.DEBUG):
+    logger = logging.getLogger()
+    logger.setLevel(level)
+    ch = logging.StreamHandler(sys.stderr)
+    formatter = logging.Formatter("%(message)s")
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+def main():
+    usage = 'usage: %prog [options] log_file'
+    desc = 'Replay a previously recorded execution.'
+    parser = OptionParser(usage=usage, description=desc)
+    parser.add_option("-q", "--quiet",
+            action="store_true", dest="quiet", default=False,
+            help="Don't print the diverge error")
+
+    (options, args) = parser.parse_args()
+    if not args:
+        parser.error('Give me a log file')
+    if len(args) > 2:
+        parser.error('You have extra arguments')
+
+    configure_logging((logging.DEBUG, logging.INFO)[options.quiet])
+
+    logfile = open(args[0], 'r')
+    logfile_map = mmap.mmap(logfile.fileno(), 0, prot=mmap.PROT_READ)
+    events = scribe.EventsFromBuffer(logfile_map)
+    Explorer(Session(events)).run()
+
+if __name__ == '__main__':
+    main()

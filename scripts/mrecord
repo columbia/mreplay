@@ -1,0 +1,167 @@
+#!/usr/bin/python
+
+import sys
+import scribe
+import signal
+import logging
+import errno
+from optparse import OptionParser
+
+# - Send a SIGUSR1 signal to stop the recording without aborting the recorded
+#   program.
+# - Send a SIGUSR2 signal to make a bookmark request.
+
+def configure_logging():
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    ch = logging.StreamHandler(sys.stderr)
+    formatter = logging.Formatter("%(message)s")
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+def main():
+    usage = 'usage: %prog [options] command [argument ...]'
+    desc = 'Record a program execution and write it to a file. ' \
+           'The default output file is command.log where command is the ' \
+           'invoked process.'
+    parser = OptionParser(usage=usage, description=desc)
+
+    parser.add_option('-o', '--output', dest='logfile', metavar='FILE',
+           help='Write the recorded execution to FILE.')
+    parser.add_option('-l', '--log-verbosity', dest='log_verbosity',
+           metavar='VERBOSITY', type='int', default=-1,
+           help='Specify the verbosity of the recording in the log file. ' \
+                '0 results in a minimal log file, 15 is the opposite.')
+    parser.add_option('-f', '--flags', dest='flags',
+           metavar='FLAGS', default='Sgp',
+           help='Manually specify the recording flags (mutually exclusive ' \
+                'with the log verbosity option).                          ' \
+                'The argument is a string of the following characters:    ' \
+                '  s: Always include the syscall return value.            ' \
+                '  S: Add extra syscall information                       ' \
+                '  h: Record signal handler extra information             ' \
+                '  c: Record signal cookie dependencies                   ' \
+                '  r: Add extra resource information                      ' \
+                '  m: Add extra memory information                        ' \
+                '  d: Add extra data information                          ' \
+                '  g: Always record string data transfers                 ' \
+                '  D: Always record data transfers                        ' \
+                '  R: Always do resource locking, even when not necessary ' \
+                '  F: Always record fences                                ' \
+                '  p: Record the pt_regs')
+    parser.add_option("-s", "--shell",
+           action='store_true', dest='shell', default=False,
+           help='Run the command through the shell')
+    parser.add_option('-a', '--auto-bookmark', dest='auto_bookmark',
+           metavar='INTERVAL', type='float', default=0,
+           help='Send bookmark request every INTERVAL seconds ' \
+                '(floats are okey)')
+    parser.add_option("-m", "--no-mm",
+           action='store_true', dest='no_mm', default=True,
+           help='Disable the memory tracking')
+    parser.add_option('-i', '--custom-init',
+           action='store_true', dest='custom_init', default=False,
+           help="Don't use the default init process")
+    parser.add_option('-n', '--network-namespace',
+           action='store_true', dest='new_net', default=False,
+           help="Run the target in a network namespace")
+    parser.add_option('-c', '--cwd', dest='cwd',
+           help="Start the recorded process in a specific directory")
+    parser.add_option('-r', '--chroot', dest='chroot',
+           help="Start the recorded process in a specific root")
+
+    configure_logging()
+
+    parser.disable_interspersed_args()
+    (options, cmd) = parser.parse_args()
+    if not cmd:
+        parser.error('No command provided')
+
+    if not options.logfile:
+        if options.shell:
+            options.logfile = 'sh.log'
+        else:
+            options.logfile = cmd[0] + '.log'
+    logfile = open(options.logfile, 'w')
+
+    if options.log_verbosity == -1:
+        enable_flags = scribe.SCRIBE_DEFAULT
+    else:
+        if options.flags:
+            parser.error('--flags and --log-verbosity are mutually exclusive')
+        enable_flags = ((1 << options.log_verbosity)-1) << 8
+
+    if options.flags:
+        flag_map = {
+                's': scribe.SCRIBE_SYSCALL_RET,
+                'S': scribe.SCRIBE_SYSCALL_EXTRA,
+                'h': scribe.SCRIBE_SIG_EXTRA,
+                'c': scribe.SCRIBE_SIG_COOKIE,
+                'r': scribe.SCRIBE_RES_EXTRA,
+                'm': scribe.SCRIBE_MEM_EXTRA,
+                'd': scribe.SCRIBE_DATA_EXTRA,
+                'g': scribe.SCRIBE_DATA_STRING_ALWAYS,
+                'D': scribe.SCRIBE_DATA_ALWAYS,
+                'R': scribe.SCRIBE_RES_ALWAYS,
+                'F': scribe.SCRIBE_FENCE_ALWAYS,
+                'p': scribe.SCRIBE_REGS
+        }
+        enable_flags = 0
+        for c in options.flags:
+            try:
+                enable_flags |= flag_map[c]
+            except:
+                parser.error('Invalid flag: %s' % c)
+
+    disable_flags = [0, scribe.SCRIBE_DISABLE_MM][options.no_mm]
+    flags = (enable_flags & scribe.SCRIBE_ALL) | disable_flags
+    if options.custom_init:
+        flags |= scribe.SCRIBE_CUSTOM_INIT
+    if options.new_net:
+        flags |= scribe.SCRIBE_CLONE_NEWNET
+    context = scribe.Context(logfile)
+    ps = scribe.Popen(context, cmd, record = True, shell = options.shell,
+                      cwd = options.cwd, chroot = options.chroot,
+                      flags = flags)
+
+    stop_requested = [False]
+    def do_stop(signum, stack):
+        try:
+            context.stop()
+            stop_requested[0] = True
+        except OSError as e:
+            logging.error("Cannot request to stop (%s)" % str(e))
+    def do_bookmark(signum, stack):
+        try:
+            context.bookmark()
+        except OSError as e:
+            if e.errno != errno.EPERM:
+                logging.error("Cannot request bookmark (%s)" % str(e))
+
+    def do_exit(signum, stack):
+        try:
+            ps.kill()
+        except OSError as e:
+            logging.error("Cannot kill the recorded process")
+
+    signal.signal(signal.SIGUSR1, do_stop)
+    signal.signal(signal.SIGUSR2, do_bookmark)
+    signal.signal(signal.SIGALRM, do_bookmark)
+    signal.signal(signal.SIGTERM, do_exit)
+    signal.signal(signal.SIGINT, do_exit)
+
+    if options.auto_bookmark:
+        signal.setitimer(signal.ITIMER_REAL,
+                         options.auto_bookmark, options.auto_bookmark)
+
+    context.wait()
+
+    if options.auto_bookmark:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+
+    if stop_requested[0]:
+        logging.info("Recording stopped")
+    ps.wait()
+
+if __name__ == '__main__':
+    main()
