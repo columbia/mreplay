@@ -52,6 +52,16 @@ class Event(object):
         return index
 
     @property
+    def index(self):
+        if self.proc is None:
+            raise AttributeError
+        try:
+            index = self.proc.events.index(self)
+        except ValueError:
+            raise AttributeError
+        return index
+
+    @property
     def resource(self):
         return self._resource
     @resource.setter

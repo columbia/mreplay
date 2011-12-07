@@ -10,11 +10,6 @@ class ToStr(Mutator):
         for event in events:
             yield str(event)
 
-class Nop(Mutator):
-    def process_events(self, events):
-        for event in events:
-            yield event
-
 class RemoveEventPid(Mutator):
     def process_events(self, events):
         for event in events:

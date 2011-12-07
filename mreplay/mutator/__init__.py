@@ -9,3 +9,6 @@ from insert_eoq_events import InsertEoqEvents
 from truncate_queue import TruncateQueue
 from bookmark import Bookmark
 from to_raw_events import ToRawEvents
+from ignore_syscall import IgnoreSyscall
+from delete_syscall import DeleteSyscall
+from nop import Nop

@@ -33,7 +33,7 @@ def main():
            help='Specify the verbosity of the recording in the log file. ' \
                 '0 results in a minimal log file, 15 is the opposite.')
     parser.add_option('-f', '--flags', dest='flags',
-           metavar='FLAGS', default='Sgp',
+           metavar='FLAGS', default='Sg',
            help='Manually specify the recording flags (mutually exclusive ' \
                 'with the log verbosity option).                          ' \
                 'The argument is a string of the following characters:    ' \

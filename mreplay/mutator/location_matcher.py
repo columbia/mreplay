@@ -1,9 +1,11 @@
 from mreplay.session import Event
-from mreplay.location import Start, End
+from mreplay.location import Location, Start, End
 import scribe
 
 class LocationMatcher:
     def __init__(self, matchers):
+        if isinstance(matchers, Location):
+            matchers = [matchers]
         if isinstance(matchers, list):
             matchers = dict((m, None) for m in matchers)
         if not isinstance(matchers, dict):
