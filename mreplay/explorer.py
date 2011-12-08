@@ -14,30 +14,21 @@ MREPLAY_DIR = ".mreplay"
 
 SUCCESS = 1
 FAILED = 2
+RUNNING = 3
 
 def load_session(logfile_path):
     with open(logfile_path, 'r') as logfile:
         logfile_map = mmap.mmap(logfile.fileno(), 0, prot=mmap.PROT_READ)
         return Session(scribe.EventsFromBuffer(logfile_map))
 
-class Failure:
-    pass
-
-class Success:
-    pass
-
-class Diverge(Failure):
-    def __init__(self, syscall):
-        self.syscall = syscall
-
 class Execution:
-    def __init__(self, parent, mutation):
+    def __init__(self, parent, mutation, state=None, session=None):
         self.explorer = parent.explorer
         self.parent = parent
         self.mutation = mutation
         self.children = []
-        self.state = None
-        self._session = None
+        self.state = state
+        self._session = session
         self.name = None
 
     def __str__(self):
@@ -75,6 +66,7 @@ class Execution:
         return self._session
 
     def print_diff(self):
+        self.generate_log()
         cmd = "diff -U1 <(profiler %s 2> /dev/null) <(profiler %s 2> /dev/null) | tail -n +4" % \
                   (self.explorer.root.logfile_path, self.logfile_path)
         subprocess.call(['/bin/bash', '-c', cmd])
@@ -87,7 +79,7 @@ class Execution:
         self.info("\033[1;31mDeadlocked\033[m")
         self.print_diff()
 
-    def diverged(self, diverge_event):
+    def _diverged_stub(self, diverge_event):
         if diverge_event is None:
             self.info("\033[1;31mFATAL ERROR -- FIXME\033[m")
             return
@@ -114,6 +106,10 @@ class Execution:
             self.info("pid=%d \033[1;33m%s\033[m at n=%d: %s" %
                        (pid, diverge_str, num, syscall))
         self.print_diff()
+        return syscall
+
+    def diverged(self, diverge_event):
+        syscall = self._diverged_stub(diverge_event)
 
         # We only add the insert child only when we didn't deleted at the same
         # place. Otherwise we end up with two children like this:
@@ -129,16 +125,54 @@ class Execution:
 
         self.add_execution(Execution(self, mutator.DeleteSyscall(syscall)))
 
+    def mutated(self, diverge_event):
+        syscall = self._diverged_stub(diverge_event)
+        self.add_execution(Execution(self, mutator.DeleteSyscall(syscall)))
+        self.add_execution(Execution(self,
+            mutator.IgnoreSyscall(Location(syscall, 'before')),
+            state = RUNNING, session = self.session))
+
     def success(self):
         self.state = SUCCESS
         self.info("\033[1;32mSuccess\033[m")
         self.print_diff()
 
+class RootExecution(Execution):
+    def __init__(self, explorer):
+        class DummyParent:
+            pass
+        parent = DummyParent()
+        parent.explorer = explorer
+        parent.session = load_session(explorer.logfile_path)
+        Execution.__init__(self, parent, mutator.Nop())
+
+    def __str__(self):
+        return "0"
+
+# An execution is not the same as a replay:
+# A Replay can mutate and thus represent different executions
+class Replayer:
+    def __init__(self, execution):
+        self.execution = execution
+        self.explorer = execution.explorer
+
     def run(self):
-        self.info("Running")
-        self.generate_log()
-        with open(self.logfile_path, 'r') as logfile:
-            context = scribe.Context(logfile, backtrace_len = 1)
+        self.execution.info("Running")
+
+        def _on_mutation(diverge_event):
+            self.execution.diverged(diverge_event)
+            self.explorer.add_execution(self.execution)
+
+            self.execution = [child for child in self.execution.children
+                              if child.state == RUNNING].next()
+
+        class ReplayContext(scribe.Context):
+            def on_mutation(self, event):
+                _on_mutation(event)
+
+        self.execution.generate_log()
+        with open(self.execution.logfile_path, 'r') as logfile:
+            context = ReplayContext(logfile, backtrace_len = 0)
             ps = scribe.Popen(context, replay = True)
 
         def do_check_deadlock(signum, stack):
@@ -152,27 +186,19 @@ class Execution:
 
         try:
             context.wait()
-            self.success()
+            self.execution.success()
         except scribe.DeadlockError:
-            self.deadlocked()
+            self.execution.deadlocked()
         except scribe.DivergeError as diverge:
-            self.diverged(diverge.event)
+            self.execution.diverged(diverge.event)
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0, 0)
             signal.signal(signal.SIGALRM, signal.SIG_DFL)
+
         ps.wait()
 
-class RootExecution(Execution):
-    def __init__(self, explorer):
-        class DummyParent:
-            pass
-        parent = DummyParent()
-        parent.explorer = explorer
-        parent.session = load_session(explorer.logfile_path)
-        Execution.__init__(self, parent, mutator.Nop())
-
-    def __str__(self):
-        return "0"
+        assert(self.execution.state is not None)
+        self.explorer.add_execution(self.execution)
 
 class Explorer:
     def __init__(self, logfile_path):
@@ -189,7 +215,12 @@ class Explorer:
         os.makedirs(MREPLAY_DIR)
 
     def add_execution(self, execution):
-        self.todo.append(execution)
+        if execution.state is None:
+            self.todo.append(execution)
+        elif execution.state == SUCCESS:
+            self.success.append(execution)
+        elif execution.state == FAILED:
+            self.failed.append(execution)
 
     def run(self):
         stop_requested = [False]
@@ -206,11 +237,7 @@ class Explorer:
                          (len(self.success), len(self.failed), len(self.todo)))
             logging.info("-" * 80)
             execution = self.todo.pop(0)
-            execution.run()
-            if execution.state == SUCCESS:
-                self.success.append(execution)
-            else:
-                self.failed.append(execution)
+            Replayer(execution).run()
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)
 

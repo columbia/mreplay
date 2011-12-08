@@ -15,6 +15,6 @@ class IgnoreSyscall(Mutator):
         for event in events:
             match = self.matcher.match(event)
             if match is not None:
-                ignore_event = scribe.EventIgnoreSyscall()
+                ignore_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL)
                 yield Event(ignore_event, event.proc)
             yield event
