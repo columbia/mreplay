@@ -18,9 +18,9 @@ def main():
     parser.add_option("-f", "--not-on-the-fly",
             action="store_true", dest="not_on_the_fly", default=False,
             help="Don't use the on the fly optimization")
-    parser.add_option("-s", "--halt-on-sucess",
-            action="store_true", dest="halt_on_success", default=False,
-            help="Stop exploring when a success is found")
+    parser.add_option("-a", "--try-all-executions",
+            action="store_true", dest="try_all", default=False,
+            help="Try all executions")
 
     (options, args) = parser.parse_args()
     if not args:
@@ -32,7 +32,7 @@ def main():
     configure_logging((logging.INFO, logging.DEBUG)[options.verbose])
 
     Explorer(logfile_path, not options.not_on_the_fly,
-            options.halt_on_success).run()
+             options.try_all).run()
 
 if __name__ == '__main__':
     main()

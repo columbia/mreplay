@@ -112,7 +112,6 @@ class Execution:
         else:
             self.info("pid=%d \033[1;33m%s\033[m at n=%d: %s" %
                        (pid, diverge_str, num, syscall))
-        self.print_diff()
 
         if diverge_event.fatal:
             self.explorer.add_execution(Execution(self,
@@ -193,9 +192,9 @@ class Replayer:
         ps.wait()
 
 class Explorer:
-    def __init__(self, logfile_path, on_the_fly, halt_on_success):
+    def __init__(self, logfile_path, on_the_fly, try_all):
         self.logfile_path = logfile_path
-        self.halt_on_success = halt_on_success
+        self.try_all = try_all
         self.executions = []
         self.make_mreplay_dir()
         self.root = RootExecution(self, on_the_fly)
@@ -235,7 +234,7 @@ class Explorer:
         self.add_execution(self.root)
 
         while not stop_requested[0]:
-            if self.halt_on_success and self.num_state(SUCCESS) > 0:
+            if not self.try_all and self.num_state(SUCCESS) > 0:
                 break
 
             todos = filter(lambda e: e.state == TODO, self.executions)
