@@ -7,6 +7,7 @@ import logging
 import signal
 import errno
 import subprocess
+import unistd
 from session import Session
 from location import Location
 
@@ -26,7 +27,8 @@ def load_session(logfile_path):
         return Session(scribe.EventsFromBuffer(logfile_map))
 
 class Execution:
-    def __init__(self, parent, mutation, state=TODO, replay_offset=0):
+    def __init__(self, parent, mutation, state=TODO,
+                 running_session = None):
         self.explorer = parent.explorer
         self.parent = parent
         self.score = parent.score + 1
@@ -37,7 +39,7 @@ class Execution:
         self.children = []
         self.state = state
         self._session = None
-        self.replay_offset = replay_offset
+        self._running_session = running_session
         self.name = None
         self.id = self.explorer.get_new_id()
 
@@ -54,8 +56,7 @@ class Execution:
         if os.path.exists(self.logfile_path):
             return
 
-        events  = self.parent.session
-        events |= self.mutation
+        events  = self.mutated_session
         events |= mutator.AdjustResources()
         events |= mutator.InsertEoqEvents()
         events |= mutator.InsertPidEvents()
@@ -71,6 +72,18 @@ class Execution:
             self.generate_log()
             self._session = load_session(self.logfile_path)
         return self._session
+
+    @property
+    def running_session(self):
+        if self._running_session is None:
+            return self.session
+        return self._running_session
+
+    @property
+    def mutated_session(self):
+        if self._session is not None and self._running_session is None:
+            return self._session
+        return self.parent.mutated_session | self.mutation
 
     def print_diff(self):
         self.generate_log()
@@ -92,7 +105,6 @@ class Execution:
         num = diverge_event.num_ev_consumed
         if diverge_event.fatal:
             num -= 1
-        num += self.replay_offset
 
         if diverge_event.fatal:
             diverge_str = "diverged (%s)" % diverge_event
@@ -100,7 +112,8 @@ class Execution:
             diverge_str = "mutating (%s)" % diverge_event
 
         self.state = FAILED
-        event = self.session.processes[pid].events[num]
+        event = self.running_session.processes[pid].events[num]
+
         try:
             syscall = event.syscall
         except AttributeError:
@@ -127,9 +140,10 @@ class Execution:
         else:
             self.explorer.add_execution(Execution(self,
                 mutator.IgnoreNextSyscall(Location(syscall, 'before')),
-                state = RUNNING, replay_offset=self.replay_offset+1))
+                state=RUNNING, running_session=self.running_session))
 
-        self.explorer.add_execution(Execution(self, mutator.DeleteSyscall(syscall)))
+        if syscall.nr != unistd.NR_exit_group:
+            self.explorer.add_execution(Execution(self, mutator.DeleteSyscall(syscall)))
 
     def success(self):
         self.state = SUCCESS
@@ -143,11 +157,13 @@ class RootExecution(Execution):
         parent = DummyParent()
         parent.score = 0
         parent.explorer = explorer
-        parent.session = load_session(explorer.logfile_path)
+        parent.mutated_session = load_session(explorer.logfile_path)
+
         if on_the_fly:
-            Execution.__init__(self, parent, mutator.MutateOnTheFly(parent.session))
+            m = mutator.MutateOnTheFly(parent.mutated_session)
         else:
-            Execution.__init__(self, parent, mutator.Nop())
+            m = mutator.Nop()
+        Execution.__init__(self, parent, m)
 
     def __str__(self):
         return "0"
