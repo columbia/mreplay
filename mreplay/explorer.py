@@ -39,6 +39,7 @@ class Execution:
         self._session = None
         self.replay_offset = replay_offset
         self.name = None
+        self.id = self.explorer.get_new_id()
 
     def __str__(self):
         if self.name is None:
@@ -47,7 +48,7 @@ class Execution:
 
     @property
     def logfile_path(self):
-        return MREPLAY_DIR + "/" + str(self)
+        return MREPLAY_DIR + "/" + str(self.id)
 
     def generate_log(self):
         if os.path.exists(self.logfile_path):
@@ -78,7 +79,7 @@ class Execution:
         subprocess.call(['/bin/bash', '-c', cmd])
 
     def info(self, msg):
-        logging.info("[%s] %s" % (self, msg))
+        logging.info("[%d] %s" % (self.id, msg))
 
     def deadlocked(self):
         self.state = FAILED
@@ -159,13 +160,14 @@ class Replayer:
         self.explorer = execution.explorer
 
     def run(self):
-        self.execution.info("Running")
-
+        if is_verbose():
+            self.execution.info("Running %s" % self.execution)
         def _on_mutation(diverge_event):
             self.execution.diverged(diverge_event)
             self.execution = [e for e in self.explorer.executions
                               if e.state == RUNNING][0]
-            self.execution.info("Running Mutation")
+            if is_verbose():
+                self.execution.info("Running %s" % self.execution)
 
         class ReplayContext(scribe.Context):
             def on_mutation(self, event):
@@ -204,7 +206,12 @@ class Explorer:
         self.try_all = try_all
         self.executions = []
         self.make_mreplay_dir()
+        self._next_id = 0
         self.root = RootExecution(self, on_the_fly)
+
+    def get_new_id(self):
+        self._next_id += 1
+        return self._next_id
 
     def make_mreplay_dir(self):
         if os.path.exists(MREPLAY_DIR):
@@ -253,11 +260,12 @@ class Explorer:
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-        print("")
-        self.print_status()
-        print("Summary of good executions:")
-        for execution in self.executions:
-            if execution.state == SUCCESS:
-                print("%s:" % execution)
-                execution.print_diff()
-                print("")
+        if self.try_all:
+            print("")
+            self.print_status()
+            print("Summary of good executions:")
+            for execution in self.executions:
+                if execution.state == SUCCESS:
+                    print("%s:" % execution)
+                    execution.print_diff()
+                    print("")
