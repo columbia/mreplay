@@ -8,6 +8,7 @@ import signal
 import errno
 import subprocess
 import unistd
+import execute
 from session import Session
 from location import Location
 
@@ -175,7 +176,7 @@ class Replayer:
         self.execution = execution
         self.explorer = execution.explorer
 
-    def run(self):
+    def run(self, exe):
         if is_verbose():
             self.execution.info("Running %s" % self.execution)
         def _on_mutation(diverge_event):
@@ -192,6 +193,7 @@ class Replayer:
         self.execution.generate_log()
         with open(self.execution.logfile_path, 'r') as logfile:
             context = ReplayContext(logfile, backtrace_len = 0)
+            context.add_init_loader(lambda argv, envp: exe.prepare())
             ps = scribe.Popen(context, replay = True)
 
         def do_check_deadlock(signum, stack):
@@ -217,9 +219,10 @@ class Replayer:
         ps.wait()
 
 class Explorer:
-    def __init__(self, logfile_path, on_the_fly, try_all):
+    def __init__(self, logfile_path, on_the_fly, try_all, isolate):
         self.logfile_path = logfile_path
         self.try_all = try_all
+        self.isolate = isolate
         self.executions = []
         self.make_mreplay_dir()
         self._next_id = 0
@@ -272,7 +275,9 @@ class Explorer:
                 break
             self.print_status()
             execution = min(todos, key=lambda e: e.score)
-            Replayer(execution).run()
+
+            with execute.open(jailed=self.isolate) as exe:
+                Replayer(execution).run(exe)
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)
 

@@ -21,6 +21,9 @@ def main():
     parser.add_option("-a", "--try-all-executions",
             action="store_true", dest="try_all", default=False,
             help="Try all executions")
+    parser.add_option("-i", "--isolate",
+            action="store_true", dest="isolate", default=False,
+            help="Isolate the file system")
 
     (options, args) = parser.parse_args()
     if not args:
@@ -32,7 +35,7 @@ def main():
     configure_logging((logging.INFO, logging.DEBUG)[options.verbose])
 
     Explorer(logfile_path, not options.not_on_the_fly,
-             options.try_all).run()
+             options.try_all, options.isolate).run()
 
 if __name__ == '__main__':
     main()
