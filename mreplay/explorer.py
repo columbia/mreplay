@@ -9,6 +9,7 @@ import errno
 import subprocess
 import unistd
 import execute
+import itertools
 from session import Session
 from location import Location
 
@@ -29,12 +30,12 @@ def load_session(logfile_path):
 
 class Execution:
     def __init__(self, parent, mutation, state=TODO,
-                 running_session = None):
+                 running_session=None, mutation_index=0):
         self.explorer = parent.explorer
         self.parent = parent
-        self.score = parent.score + 1
+        self.score = parent.score - 1
         if isinstance(mutation, mutator.DeleteSyscall):
-            self.score += 1
+            self.score -= 1
 
         self.mutation = mutation
         self.children = []
@@ -42,6 +43,7 @@ class Execution:
         self._session = None
         self._running_session = running_session
         self.name = None
+        self.mutation_index = mutation_index
         self.id = self.explorer.get_new_id()
 
     def __str__(self):
@@ -106,6 +108,7 @@ class Execution:
         num = diverge_event.num_ev_consumed
         if diverge_event.fatal:
             num -= 1
+        self.score += (num - self.mutation_index)**2
 
         if diverge_event.fatal:
             diverge_str = "diverged (%s)" % diverge_event
@@ -135,16 +138,30 @@ class Execution:
             self.info("pid=%d \033[1;33m%s\033[m at n=%d: %s" %
                        (pid, diverge_str, num, syscall))
 
+        # Because of how signals are handled, we need to put the ignore
+        # syscall event before the signals...
+        try:
+            first_signal = itertools.takewhile(lambda e: e.is_a(scribe.EventSignal),
+                                        syscall.proc.events.before(syscall)).next()
+            add_location = Location(first_signal, 'before')
+        except StopIteration:
+            add_location = Location(syscall, 'before')
+
         if diverge_event.fatal:
             self.explorer.add_execution(Execution(self,
-                mutator.IgnoreNextSyscall(Location(syscall, 'before'))))
+                mutator.IgnoreNextSyscall(add_location),
+                mutation_index=syscall.index))
         else:
             self.explorer.add_execution(Execution(self,
-                mutator.IgnoreNextSyscall(Location(syscall, 'before')),
-                state=RUNNING, running_session=self.running_session))
+                mutator.IgnoreNextSyscall(add_location),
+                state=RUNNING, running_session=self.running_session,
+                mutation_index=syscall.index))
+
 
         if syscall.nr != unistd.NR_exit_group:
-            self.explorer.add_execution(Execution(self, mutator.DeleteSyscall(syscall)))
+            self.explorer.add_execution(Execution(self,
+                mutator.DeleteSyscall(syscall),
+                mutation_index=syscall.index))
 
     def success(self):
         self.state = SUCCESS
@@ -274,7 +291,7 @@ class Explorer:
             if len(todos) == 0:
                 break
             self.print_status()
-            execution = min(todos, key=lambda e: e.score)
+            execution = max(todos, key=lambda e: e.score)
 
             with execute.open(jailed=self.isolate) as exe:
                 Replayer(execution).run(exe)
