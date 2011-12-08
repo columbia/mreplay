@@ -17,6 +17,9 @@ SUCCESS = 1
 FAILED = 2
 RUNNING = 3
 
+def is_verbose():
+    return logging.getLogger().getEffectiveLevel() == logging.DEBUG
+
 def load_session(logfile_path):
     with open(logfile_path, 'r') as logfile:
         logfile_map = mmap.mmap(logfile.fileno(), 0, prot=mmap.PROT_READ)
@@ -80,7 +83,8 @@ class Execution:
     def deadlocked(self):
         self.state = FAILED
         self.info("\033[1;31mDeadlocked\033[m")
-        self.print_diff()
+        if is_verbose():
+            self.print_diff()
 
     def diverged(self, diverge_event):
         pid = diverge_event.pid
@@ -105,6 +109,9 @@ class Execution:
                        (pid, diverge_str, num, event))
             self.print_diff()
             return
+
+        if is_verbose():
+            self.print_diff()
 
         if event != syscall:
             self.info("pid=%d \033[1;33m%s\033[m at n=%d: %s in %s" %
