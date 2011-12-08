@@ -14,7 +14,13 @@ def main():
     parser = OptionParser(usage=usage, description=desc)
     parser.add_option("-v", "--verbose",
             action="store_true", dest="verbose", default=False,
-            help="Verbose outputt")
+            help="Verbose output")
+    parser.add_option("-f", "--not-on-the-fly",
+            action="store_true", dest="not_on_the_fly", default=False,
+            help="Don't use the on the fly optimization")
+    parser.add_option("-s", "--halt-on-sucess",
+            action="store_true", dest="halt_on_success", default=False,
+            help="Stop exploring when a success is found")
 
     (options, args) = parser.parse_args()
     if not args:
@@ -25,7 +31,8 @@ def main():
 
     configure_logging((logging.INFO, logging.DEBUG)[options.verbose])
 
-    Explorer(logfile_path).run()
+    Explorer(logfile_path, not options.not_on_the_fly,
+            options.halt_on_success).run()
 
 if __name__ == '__main__':
     main()

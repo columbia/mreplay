@@ -12,6 +12,7 @@ from location import Location
 
 MREPLAY_DIR = ".mreplay"
 
+TODO = 0
 SUCCESS = 1
 FAILED = 2
 RUNNING = 3
@@ -22,23 +23,24 @@ def load_session(logfile_path):
         return Session(scribe.EventsFromBuffer(logfile_map))
 
 class Execution:
-    def __init__(self, parent, mutation, state=None, session=None):
+    def __init__(self, parent, mutation, state=TODO, replay_offset=0):
         self.explorer = parent.explorer
         self.parent = parent
+        self.score = parent.score + 1
+        if isinstance(mutation, mutator.DeleteSyscall):
+            self.score += 1
+
         self.mutation = mutation
         self.children = []
         self.state = state
-        self._session = session
+        self._session = None
+        self.replay_offset = replay_offset
         self.name = None
 
     def __str__(self):
         if self.name is None:
             self.name = "%s_%s" % (self.parent, self.mutation)
         return self.name
-
-    def add_execution(self, execution):
-        self.children.append(execution)
-        self.explorer.add_execution(execution)
 
     @property
     def logfile_path(self):
@@ -62,6 +64,7 @@ class Execution:
     @property
     def session(self):
         if self._session is None:
+            self.generate_log()
             self._session = load_session(self.logfile_path)
         return self._session
 
@@ -79,21 +82,25 @@ class Execution:
         self.info("\033[1;31mDeadlocked\033[m")
         self.print_diff()
 
-    def _diverged_stub(self, diverge_event):
-        if diverge_event is None:
-            self.info("\033[1;31mFATAL ERROR -- FIXME\033[m")
-            return
-
+    def diverged(self, diverge_event):
         pid = diverge_event.pid
-        num = diverge_event.num_ev_consumed - 1
+        num = diverge_event.num_ev_consumed
+        if diverge_event.fatal:
+            num -= 1
+        num += self.replay_offset
 
-        diverge_str = "diverged (%s)" % diverge_event
+        if diverge_event.fatal:
+            diverge_str = "diverged (%s)" % diverge_event
+        else:
+            diverge_str = "mutating (%s)" % diverge_event
 
         self.state = FAILED
         event = self.session.processes[pid].events[num]
         try:
             syscall = event.syscall
         except AttributeError:
+            if not diverge_event.fatal:
+                self.info("\033[1;31m FATAL ERROR -- FIXME\033[m")
             self.info("pid=%d \033[1;31m%s\033[m at n=%d: %s (no syscall)" %
                        (pid, diverge_str, num, event))
             self.print_diff()
@@ -106,31 +113,16 @@ class Execution:
             self.info("pid=%d \033[1;33m%s\033[m at n=%d: %s" %
                        (pid, diverge_str, num, syscall))
         self.print_diff()
-        return syscall
 
-    def diverged(self, diverge_event):
-        syscall = self._diverged_stub(diverge_event)
+        if diverge_event.fatal:
+            self.explorer.add_execution(Execution(self,
+                mutator.IgnoreNextSyscall(Location(syscall, 'before'))))
+        else:
+            self.explorer.add_execution(Execution(self,
+                mutator.IgnoreNextSyscall(Location(syscall, 'before')),
+                state = RUNNING, replay_offset=self.replay_offset+1))
 
-        # We only add the insert child only when we didn't deleted at the same
-        # place. Otherwise we end up with two children like this:
-        # - syscall()                   + ignore syscall
-        # + ignore syscall              - syscall()
-        # These two executions are equivalent
-
-        if not (isinstance(self.mutation, mutator.DeleteSyscall) and \
-            self.mutation.syscall.proc.pid == syscall.proc.pid and \
-            self.mutation.syscall.index == syscall.index):
-            self.add_execution(Execution(self,
-                               mutator.IgnoreSyscall(Location(syscall, 'before'))))
-
-        self.add_execution(Execution(self, mutator.DeleteSyscall(syscall)))
-
-    def mutated(self, diverge_event):
-        syscall = self._diverged_stub(diverge_event)
-        self.add_execution(Execution(self, mutator.DeleteSyscall(syscall)))
-        self.add_execution(Execution(self,
-            mutator.IgnoreSyscall(Location(syscall, 'before')),
-            state = RUNNING, session = self.session))
+        self.explorer.add_execution(Execution(self, mutator.DeleteSyscall(syscall)))
 
     def success(self):
         self.state = SUCCESS
@@ -138,13 +130,17 @@ class Execution:
         self.print_diff()
 
 class RootExecution(Execution):
-    def __init__(self, explorer):
+    def __init__(self, explorer, on_the_fly):
         class DummyParent:
             pass
         parent = DummyParent()
+        parent.score = 0
         parent.explorer = explorer
         parent.session = load_session(explorer.logfile_path)
-        Execution.__init__(self, parent, mutator.Nop())
+        if on_the_fly:
+            Execution.__init__(self, parent, mutator.MutateOnTheFly(parent.session))
+        else:
+            Execution.__init__(self, parent, mutator.Nop())
 
     def __str__(self):
         return "0"
@@ -161,10 +157,9 @@ class Replayer:
 
         def _on_mutation(diverge_event):
             self.execution.diverged(diverge_event)
-            self.explorer.add_execution(self.execution)
-
-            self.execution = [child for child in self.execution.children
-                              if child.state == RUNNING].next()
+            self.execution = [e for e in self.explorer.executions
+                              if e.state == RUNNING][0]
+            self.execution.info("Running Mutation")
 
         class ReplayContext(scribe.Context):
             def on_mutation(self, event):
@@ -197,17 +192,13 @@ class Replayer:
 
         ps.wait()
 
-        assert(self.execution.state is not None)
-        self.explorer.add_execution(self.execution)
-
 class Explorer:
-    def __init__(self, logfile_path):
+    def __init__(self, logfile_path, on_the_fly, halt_on_success):
         self.logfile_path = logfile_path
-        self.success = []
-        self.failed = []
-        self.todo = []
+        self.halt_on_success = halt_on_success
+        self.executions = []
         self.make_mreplay_dir()
-        self.root = RootExecution(self)
+        self.root = RootExecution(self, on_the_fly)
 
     def make_mreplay_dir(self):
         if os.path.exists(MREPLAY_DIR):
@@ -215,12 +206,23 @@ class Explorer:
         os.makedirs(MREPLAY_DIR)
 
     def add_execution(self, execution):
-        if execution.state is None:
-            self.todo.append(execution)
-        elif execution.state == SUCCESS:
-            self.success.append(execution)
-        elif execution.state == FAILED:
-            self.failed.append(execution)
+        if execution.state == TODO:
+            # We need to check if it's not a duplicate right here
+            pass
+
+        self.executions.append(execution)
+
+    def num_state(self, state):
+        return len(filter(lambda e: e.state == state, self.executions))
+
+    def print_status(self):
+        logging.info("-" * 80)
+        logging.info("Success: %d, Failed: %d, Todo: %d" % \
+                     (self.num_state(SUCCESS),
+                      self.num_state(FAILED),
+                      self.num_state(TODO)))
+        logging.info("-" * 80)
+
 
     def run(self):
         stop_requested = [False]
@@ -231,23 +233,25 @@ class Explorer:
         signal.signal(signal.SIGINT, do_stop)
 
         self.add_execution(self.root)
-        while len(self.todo) > 0 and not stop_requested[0]:
-            logging.info("-" * 80)
-            logging.info("Success: %d, Failed: %d, Todo: %d" % \
-                         (len(self.success), len(self.failed), len(self.todo)))
-            logging.info("-" * 80)
-            execution = self.todo.pop(0)
+
+        while not stop_requested[0]:
+            if self.halt_on_success and self.num_state(SUCCESS) > 0:
+                break
+
+            todos = filter(lambda e: e.state == TODO, self.executions)
+            if len(todos) == 0:
+                break
+            self.print_status()
+            execution = min(todos, key=lambda e: e.score)
             Replayer(execution).run()
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)
 
         print("")
-        print("-"*80)
-        print("Success: %d, Failed: %d, Todo: %d" % \
-               (len(self.success), len(self.failed), len(self.todo)))
-        print("-"*80)
+        self.print_status()
         print("Summary of good executions:")
-        for execution in self.success:
-            print("%s:" % execution)
-            execution.print_diff()
-            print("")
+        for execution in self.executions:
+            if execution.state == SUCCESS:
+                print("%s:" % execution)
+                execution.print_diff()
+                print("")
