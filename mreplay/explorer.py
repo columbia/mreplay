@@ -33,9 +33,7 @@ class Execution:
                  running_session=None, mutation_index=0):
         self.explorer = parent.explorer
         self.parent = parent
-        self.score = parent.score - 1
-        if isinstance(mutation, mutator.DeleteSyscall):
-            self.score -= 1
+        self.score = parent.score
 
         self.mutation = mutation
         self.children = []
@@ -103,12 +101,22 @@ class Execution:
         if is_verbose():
             self.print_diff()
 
+    def adjust_score(self, index):
+        segment_length = index - self.mutation_index
+        if self.explorer.linear:
+            self.score += segment_length
+        else:
+            self.score += segment_length**2
+
     def diverged(self, diverge_event):
+        if diverge_event is None:
+            self.info("\033[1;31m FATAL ERROR -- FIXME\033[m")
         pid = diverge_event.pid
         num = diverge_event.num_ev_consumed
         if diverge_event.fatal:
             num -= 1
-        self.score += (num - self.mutation_index)**2
+
+        self.adjust_score(num)
 
         if diverge_event.fatal:
             diverge_str = "diverged (%s)" % diverge_event
@@ -150,7 +158,7 @@ class Execution:
         if diverge_event.fatal:
             self.explorer.add_execution(Execution(self,
                 mutator.IgnoreNextSyscall(add_location),
-                mutation_index=syscall.index))
+                mutation_index=syscall.index+1))
         else:
             self.explorer.add_execution(Execution(self,
                 mutator.IgnoreNextSyscall(add_location),
@@ -161,11 +169,12 @@ class Execution:
         if syscall.nr != unistd.NR_exit_group:
             self.explorer.add_execution(Execution(self,
                 mutator.DeleteSyscall(syscall),
-                mutation_index=syscall.index))
+                mutation_index=syscall.index+1))
 
     def success(self):
         self.state = SUCCESS
         self.info("\033[1;32mSuccess\033[m")
+        self.adjust_score(len(self.running_session.events))
         self.print_diff()
 
 class RootExecution(Execution):
@@ -240,6 +249,7 @@ class Explorer:
         self.logfile_path = logfile_path
         self.try_all = try_all
         self.isolate = isolate
+        self.linear = 0
         self.executions = []
         self.make_mreplay_dir()
         self._next_id = 0
