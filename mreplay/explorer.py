@@ -247,9 +247,9 @@ class Replayer:
 class Explorer:
     def __init__(self, logfile_path, on_the_fly, try_all, isolate):
         self.logfile_path = logfile_path
-        self.try_all = try_all
+        self.num_success_to_stop = 99999 if try_all else 1
         self.isolate = isolate
-        self.linear = 0
+        self.linear = linear
         self.executions = []
         self.make_mreplay_dir()
         self._next_id = 0
@@ -294,7 +294,7 @@ class Explorer:
         self.add_execution(self.root)
 
         while not stop_requested[0]:
-            if not self.try_all and self.num_state(SUCCESS) > 0:
+            if self.num_state(SUCCESS) >= self.num_success_to_stop:
                 break
 
             todos = filter(lambda e: e.state == TODO, self.executions)
@@ -308,7 +308,7 @@ class Explorer:
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-        if self.try_all:
+        if self.num_success_to_stop != 1:
             print("")
             self.print_status()
             print("Summary of good executions:")
