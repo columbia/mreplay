@@ -207,10 +207,13 @@ class Replayer:
             self.execution.info("Running %s" % self.execution)
         def _on_mutation(diverge_event):
             self.execution.diverged(diverge_event)
+            old_execution = self.execution
             self.execution = [e for e in self.explorer.executions
                               if e.state == RUNNING][0]
             if is_verbose():
                 self.execution.info("Running %s" % self.execution)
+            self.execution.num_run = old_execution.num_run
+            self.execution.num_success = old_execution.num_success
 
         class ReplayContext(scribe.Context):
             def on_mutation(self, event):
@@ -294,6 +297,7 @@ class Explorer:
 
         self.add_execution(self.root)
 
+        num_run = 0
         while not stop_requested[0]:
             if self.num_state(SUCCESS) >= self.num_success_to_stop:
                 break
@@ -304,17 +308,24 @@ class Explorer:
             self.print_status()
             execution = max(todos, key=lambda e: e.score)
 
+            num_run += 1
             with execute.open(jailed=self.isolate) as exe:
+                execution.num_run = num_run
+                execution.num_success = len(list([e for e in self.executions if e.state == SUCCESS]))
+
                 Replayer(execution).run(exe)
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+        print("Number of Replays: %d" % num_run)
 
         if self.num_success_to_stop != 1:
             print("")
             self.print_status()
             print("Summary of good executions:")
+            self.executions.sort(key=lambda e: e.score)
             for execution in self.executions:
                 if execution.state == SUCCESS:
-                    print("%s:" % execution)
+                    print("%d %d %d %s:" % (execution.score, execution.num_run, execution.num_success+1, execution))
                     execution.print_diff()
                     print("")
