@@ -245,9 +245,10 @@ class Replayer:
         ps.wait()
 
 class Explorer:
-    def __init__(self, logfile_path, on_the_fly, try_all, isolate):
+    def __init__(self, logfile_path, on_the_fly, num_success_to_stop, isolate,
+                 linear):
         self.logfile_path = logfile_path
-        self.num_success_to_stop = 99999 if try_all else 1
+        self.num_success_to_stop = num_success_to_stop
         self.isolate = isolate
         self.linear = linear
         self.executions = []

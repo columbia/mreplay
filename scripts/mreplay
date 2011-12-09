@@ -18,12 +18,15 @@ def main():
     parser.add_option("-f", "--not-on-the-fly",
             action="store_true", dest="not_on_the_fly", default=False,
             help="Don't use the on the fly optimization")
-    parser.add_option("-a", "--try-all-executions",
-            action="store_true", dest="try_all", default=False,
-            help="Try all executions")
     parser.add_option("-i", "--isolate",
             action="store_true", dest="isolate", default=False,
             help="Isolate the file system")
+    parser.add_option("-l", "--linear",
+            action="store_true", dest="linear", default=False,
+            help="Use a linear scaling")
+    parser.add_option("-s", "--num-success-stop",
+            type="int", dest="num_success_to_stop", default=1,
+            help="Stop after how many successes")
 
     (options, args) = parser.parse_args()
     if not args:
@@ -35,7 +38,7 @@ def main():
     configure_logging((logging.INFO, logging.DEBUG)[options.verbose])
 
     Explorer(logfile_path, not options.not_on_the_fly,
-             options.try_all, options.isolate).run()
+             options.num_success_to_stop, options.isolate, options.linear).run()
 
 if __name__ == '__main__':
     main()
