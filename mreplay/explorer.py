@@ -35,6 +35,7 @@ class Execution:
         self.explorer = parent.explorer
         self.parent = parent
         self.score = parent.score
+        self.depth = parent.depth + 1
 
         self.mutation = mutation
         self.children = []
@@ -109,6 +110,15 @@ class Execution:
         else:
             self.score += segment_length**2
 
+    def get_user_pattern(self):
+        pattern = self.explorer.pattern
+        if pattern is not None and self.depth < len(pattern):
+            user_pattern = pattern[self.depth]
+            if user_pattern == '.':
+                return None
+            return user_pattern
+        return None
+
     def diverged(self, diverge_event):
         if diverge_event is None:
             self.info("\033[1;31m FATAL ERROR -- FIXME\033[m")
@@ -176,21 +186,25 @@ class Execution:
         except StopIteration:
             add_location = Location(syscall, 'before')
 
-        if diverge_event.fatal:
-            self.explorer.add_execution(Execution(self,
-                mutator.IgnoreNextSyscall(add_location, new_syscall),
-                mutation_index=syscall.index+1))
-        else:
-            self.explorer.add_execution(Execution(self,
-                mutator.IgnoreNextSyscall(add_location, new_syscall),
-                state=RUNNING, running_session=self.running_session,
-                mutation_index=syscall.index))
+        user_pattern = self.get_user_pattern()
+
+        if user_pattern is None or user_pattern == '+':
+            if diverge_event.fatal:
+                self.explorer.add_execution(Execution(self,
+                    mutator.IgnoreNextSyscall(add_location, new_syscall),
+                    mutation_index=syscall.index+1))
+            else:
+                self.explorer.add_execution(Execution(self,
+                    mutator.IgnoreNextSyscall(add_location, new_syscall),
+                    state=RUNNING, running_session=self.running_session,
+                    mutation_index=syscall.index))
 
 
-        if syscall.nr != unistd.NR_exit_group:
-            self.explorer.add_execution(Execution(self,
-                mutator.DeleteSyscall(syscall),
-                mutation_index=syscall.index+1))
+        if user_pattern is None or user_pattern == '-':
+            if syscall.nr != unistd.NR_exit_group:
+                self.explorer.add_execution(Execution(self,
+                    mutator.DeleteSyscall(syscall),
+                    mutation_index=syscall.index+1))
 
     def success(self):
         self.state = SUCCESS
@@ -203,6 +217,7 @@ class RootExecution(Execution):
         class DummyParent:
             pass
         parent = DummyParent()
+        parent.depth = -1
         parent.score = 0
         parent.explorer = explorer
         parent.mutated_session = load_session(explorer.logfile_path)
@@ -225,14 +240,20 @@ class Replayer:
 
     def run(self, exe):
         if is_verbose():
-            self.execution.info("Running %s" % self.execution)
+            self.execution.info("Running %s (%d)" % (self.execution, self.execution.score))
         def _on_mutation(diverge_event):
             self.execution.diverged(diverge_event)
             old_execution = self.execution
-            self.execution = [e for e in self.explorer.executions
-                              if e.state == RUNNING][0]
+            try:
+                self.execution = [e for e in self.explorer.executions
+                                  if e.state == RUNNING][0]
+            except IndexError:
+                # user pattern aborted the replay, must abort.
+                self.execution = None
+                ps.kill()
+                return
             if is_verbose():
-                self.execution.info("Running %s" % self.execution)
+                self.execution.info("Continue Running %s" % self.execution)
             self.execution.num_run = old_execution.num_run
             self.execution.num_success = old_execution.num_success
 
@@ -257,11 +278,14 @@ class Replayer:
 
         try:
             context.wait()
-            self.execution.success()
+            if self.execution is not None:
+                self.execution.success()
         except scribe.DeadlockError:
-            self.execution.deadlocked()
+            if self.execution is not None:
+                self.execution.deadlocked()
         except scribe.DivergeError as diverge:
-            self.execution.diverged(diverge.event)
+            if self.execution is not None:
+                self.execution.diverged(diverge.event)
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0, 0)
             signal.signal(signal.SIGALRM, signal.SIG_DFL)
@@ -270,11 +294,12 @@ class Replayer:
 
 class Explorer:
     def __init__(self, logfile_path, on_the_fly, num_success_to_stop, isolate,
-                 linear):
+                 linear, pattern):
         self.logfile_path = logfile_path
         self.num_success_to_stop = num_success_to_stop
         self.isolate = isolate
         self.linear = linear
+        self.pattern = pattern
         self.executions = []
         self.make_mreplay_dir()
         self._next_id = 0

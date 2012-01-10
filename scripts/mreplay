@@ -27,6 +27,8 @@ def main():
     parser.add_option("-s", "--num-success-stop",
             type="int", dest="num_success_to_stop", default=1,
             help="Stop after how many successes")
+    parser.add_option("-p", "--pattern",
+            dest="pattern", help="Replay pattern, +: add, -:remove, .:default")
 
     (options, args) = parser.parse_args()
     if not args:
@@ -38,7 +40,8 @@ def main():
     configure_logging((logging.INFO, logging.DEBUG)[options.verbose])
 
     Explorer(logfile_path, not options.not_on_the_fly,
-             options.num_success_to_stop, options.isolate, options.linear).run()
+             options.num_success_to_stop, options.isolate, options.linear,
+             options.pattern).run()
 
 if __name__ == '__main__':
     main()
