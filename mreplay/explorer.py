@@ -126,6 +126,10 @@ class Execution:
         self.state = FAILED
         event = self.running_session.processes[pid].events[num]
 
+        new_syscall = 0
+        if isinstance(diverge_event, scribe.EventDivergeSyscall):
+            new_syscall = diverge_event.nr
+
         try:
             syscall = event.syscall
         except AttributeError:
@@ -157,11 +161,11 @@ class Execution:
 
         if diverge_event.fatal:
             self.explorer.add_execution(Execution(self,
-                mutator.IgnoreNextSyscall(add_location),
+                mutator.IgnoreNextSyscall(add_location, new_syscall),
                 mutation_index=syscall.index+1))
         else:
             self.explorer.add_execution(Execution(self,
-                mutator.IgnoreNextSyscall(add_location),
+                mutator.IgnoreNextSyscall(add_location, new_syscall),
                 state=RUNNING, running_session=self.running_session,
                 mutation_index=syscall.index))
 

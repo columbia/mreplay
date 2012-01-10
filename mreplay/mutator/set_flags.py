@@ -5,10 +5,11 @@ from mreplay.location import Location, Start
 import scribe
 
 class SetFlags(Mutator):
-    def __init__(self, where, flags, duration):
+    def __init__(self, where, flags, duration, extra=None):
         self.where = where
         self.flags = flags
         self.duration = duration
+        self.extra = extra
         self.matcher = LocationMatcher(where)
 
     def __str__(self):
@@ -18,13 +19,16 @@ class SetFlags(Mutator):
         for event in events:
             match = self.matcher.match(event)
             if match is not None:
-                ignore_event = scribe.EventSetFlags(self.flags, self.duration)
+                ignore_event = scribe.EventSetFlags(self.flags, self.duration, self.extra)
                 yield Event(ignore_event, event.proc)
             yield event
 
 class IgnoreNextSyscall(SetFlags):
-    def __init__(self, where):
-        SetFlags.__init__(self, where, 0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL)
+    def __init__(self, where, new_syscall):
+        extra = None
+        if new_syscall != 0:
+            extra = scribe.EventSyscallExtra(nr=new_syscall, ret=0).encode()
+        SetFlags.__init__(self, where, 0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL, extra)
 
 class MutateOnTheFly(SetFlags):
     def __init__(self, session):
