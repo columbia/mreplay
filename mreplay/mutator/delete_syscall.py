@@ -16,6 +16,8 @@ class DeleteSyscall(Mutator):
         for event in events:
             match = self.matcher.match(event)
             if match is not None:
+                if not event.is_a(scribe.EventSyscallExtra):
+                    continue
                 skip_events = True
 
             if skip_events:

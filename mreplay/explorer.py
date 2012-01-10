@@ -12,6 +12,7 @@ import execute
 import itertools
 from session import Session
 from location import Location
+from mreplay.session import Event
 
 MREPLAY_DIR = ".mreplay"
 
@@ -127,6 +128,16 @@ class Execution:
         event = self.running_session.processes[pid].events[num]
 
         new_syscall = 0
+        if isinstance(diverge_event, scribe.EventDivergeEventType) and \
+                diverge_event.type == scribe.EventRdtsc.native_type:
+            add_location = Location(event, 'before')
+            rdtsc_event = Event(scribe.EventRdtsc(), event.proc)
+            self.explorer.add_execution(Execution(self,
+                mutator.InsertEvent(add_location, rdtsc_event),
+                mutation_index=event.index+1))
+            self.info("pid=%d \033[1;33m%s\033[m at n=%d Missing a RDTSC" %
+                       (pid, diverge_str, num))
+            return
         if isinstance(diverge_event, scribe.EventDivergeSyscall):
             new_syscall = diverge_event.nr
 
@@ -137,6 +148,12 @@ class Execution:
                 self.info("\033[1;31m FATAL ERROR -- FIXME\033[m")
             self.info("pid=%d \033[1;31m%s\033[m at n=%d: %s (no syscall)" %
                        (pid, diverge_str, num, event))
+
+            self.explorer.add_execution(Execution(self,
+                mutator.DeleteSyscall(event),
+                mutation_index=event.index+1))
+
+
             self.print_diff()
             return
 

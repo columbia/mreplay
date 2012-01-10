@@ -11,4 +11,5 @@ from bookmark import Bookmark
 from to_raw_events import ToRawEvents
 from delete_syscall import DeleteSyscall
 from nop import Nop
+from insert_event import InsertEvent
 from set_flags import SetFlags, MutateOnTheFly, IgnoreNextSyscall
