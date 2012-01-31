@@ -257,6 +257,8 @@ class Replayer:
         if is_verbose():
             self.execution.info("Running %s (%d)" % (self.execution, self.execution.score))
         def _on_mutation(diverge_event):
+            if self.execution is None:
+                return
             self.execution.diverged(diverge_event)
             old_execution = self.execution
             try:
@@ -277,6 +279,7 @@ class Replayer:
                 _on_mutation(event)
 
         self.execution.generate_log()
+        context = None
         with open(self.execution.logfile_path, 'r') as logfile:
             context = ReplayContext(logfile, backtrace_len = 0)
             context.add_init_loader(lambda argv, envp: exe.prepare())
@@ -306,6 +309,7 @@ class Replayer:
             signal.signal(signal.SIGALRM, signal.SIG_DFL)
 
         ps.wait()
+        context.close()
 
 class Explorer:
     def __init__(self, logfile_path, on_the_fly, num_success_to_stop, isolate,
