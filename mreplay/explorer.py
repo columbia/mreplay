@@ -138,6 +138,21 @@ class Execution:
         event = self.running_session.processes[pid].events[num]
 
         new_syscall = 0
+
+        if isinstance(diverge_event, scribe.EventDivergeMemOwned):
+            add_location = Location(event, 'before')
+            address = diverge_event.address
+            if diverge_event.write_access:
+                mevent = Event(scribe.EventMemOwnedWriteExtra(serial=0, address=address), event.proc)
+            else:
+                mevent = Event(scribe.EventMemOwnedReadExtra(serial=0, address=address), event.proc)
+            self.explorer.add_execution(Execution(self,
+                mutator.InsertEvent(add_location, mevent),
+                mutation_index=event.index+1))
+            self.info("pid=%d \033[1;33m%s\033[m at n=%d Allowing memory access" % (pid, diverge_str, num))
+            return
+
+
         if isinstance(diverge_event, scribe.EventDivergeEventType) and \
                 diverge_event.type == scribe.EventRdtsc.native_type:
             add_location = Location(event, 'before')
