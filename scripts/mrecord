@@ -33,7 +33,7 @@ def main():
            help='Specify the verbosity of the recording in the log file. ' \
                 '0 results in a minimal log file, 15 is the opposite.')
     parser.add_option('-f', '--flags', dest='flags',
-           metavar='FLAGS', default='Sg',
+           metavar='FLAGS', default='Sgrm',
            help='Manually specify the recording flags (mutually exclusive ' \
                 'with the log verbosity option).                          ' \
                 'The argument is a string of the following characters:    ' \
@@ -57,7 +57,7 @@ def main():
            help='Send bookmark request every INTERVAL seconds ' \
                 '(floats are okey)')
     parser.add_option("-m", "--no-mm",
-           action='store_true', dest='no_mm', default=True,
+           action='store_true', dest='no_mm', default=False,
            help='Disable the memory tracking')
     parser.add_option('-i', '--custom-init',
            action='store_true', dest='custom_init', default=False,
