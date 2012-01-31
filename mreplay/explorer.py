@@ -318,6 +318,8 @@ class Explorer:
         self.num_success_to_stop = num_success_to_stop
         self.isolate = isolate
         self.linear = linear
+        if pattern is not None:
+            pattern = pattern.replace('*','-+')
         self.pattern = pattern
         self.executions = []
         self.make_mreplay_dir()

@@ -28,7 +28,7 @@ def main():
             type="int", dest="num_success_to_stop", default=1,
             help="Stop after how many successes")
     parser.add_option("-p", "--pattern",
-            dest="pattern", help="Replay pattern, +: add, -:remove, .:default")
+            dest="pattern", help="Replay pattern, *:replace, +: add, -:remove, .:default")
 
     (options, args) = parser.parse_args()
     if not args:
