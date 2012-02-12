@@ -128,98 +128,90 @@ class Execution:
             num -= 1
 
         self.adjust_score(num)
-
-        if diverge_event.fatal:
-            diverge_str = "diverged (%s)" % diverge_event
-        else:
-            diverge_str = "mutating (%s)" % diverge_event
-
         self.state = FAILED
         event = self.running_session.processes[pid].events[num]
 
-        new_syscall = 0
-
-        if isinstance(diverge_event, scribe.EventDivergeMemOwned):
-            add_location = Location(event, 'before')
-            address = diverge_event.address
-            if diverge_event.write_access:
-                mevent = Event(scribe.EventMemOwnedWriteExtra(serial=0, address=address), event.proc)
-            else:
-                mevent = Event(scribe.EventMemOwnedReadExtra(serial=0, address=address), event.proc)
-            self.explorer.add_execution(Execution(self,
-                mutator.InsertEvent(add_location, mevent),
-                mutation_index=event.index+1))
-            self.info("pid=%d \033[1;33m%s\033[m at n=%d Allowing memory access" % (pid, diverge_str, num))
-            return
-
-
-        if isinstance(diverge_event, scribe.EventDivergeEventType) and \
-                diverge_event.type == scribe.EventRdtsc.native_type:
-            add_location = Location(event, 'before')
-            rdtsc_event = Event(scribe.EventRdtsc(), event.proc)
-            self.explorer.add_execution(Execution(self,
-                mutator.InsertEvent(add_location, rdtsc_event),
-                mutation_index=event.index+1))
-            self.info("pid=%d \033[1;33m%s\033[m at n=%d Missing a RDTSC" %
-                       (pid, diverge_str, num))
-            return
-        if isinstance(diverge_event, scribe.EventDivergeSyscall):
-            new_syscall = diverge_event.nr
-
+        syscall = None
         try:
             syscall = event.syscall
         except AttributeError:
+            # no syscall found
             if not diverge_event.fatal:
                 self.info("\033[1;31m FATAL ERROR -- FIXME\033[m")
-            self.info("pid=%d \033[1;31m%s\033[m at n=%d: %s (no syscall)" %
-                       (pid, diverge_str, num, event))
 
+        if diverge_event.fatal:
+            diverge_str = "diverged (%s)" % (diverge_event)
+        else:
+            diverge_str = "mutating (%s)" % (diverge_event)
+
+        diverge_str = "pid=%d \033[1;33m%s at %s\033[m" % (pid, diverge_str, event)
+
+
+        if syscall is not None and syscall != event:
+            diverge_str = "%s in %s" % (diverge_str, syscall)
+
+        add_location = Location(event, 'before')
+        add_event = None
+
+        if isinstance(diverge_event, scribe.EventDivergeMemOwned):
+            address = diverge_event.address
+            if diverge_event.write_access:
+                add_event = scribe.EventMemOwnedWriteExtra(serial=0, address=address)
+            else:
+                add_event = scribe.EventMemOwnedReadExtra(serial=0, address=address)
+            #self.explorer.add_execution(Execution(self,
+                #mutator.InsertEvent(add_location, mevent),
+                #mutation_index=event.index+1))
+            self.info("%s memory access" % diverge_str)
+
+        elif isinstance(diverge_event, scribe.EventDivergeEventType) and \
+                diverge_event.type == scribe.EventRdtsc.native_type:
+            add_event = scribe.EventRdtsc()
+            #self.explorer.add_execution(Execution(self,
+                #mutator.InsertEvent(add_location, rdtsc_event),
+                #mutation_index=event.index+1))
+            self.info("%s RDTSC" % diverge_str)
+
+        elif isinstance(diverge_event, scribe.EventDivergeSyscall):
+            new_syscall = diverge_event.nr
+            add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
+                                   scribe.EventSyscallExtra(nr=new_syscall, ret=0).encode())
+            self.info("%s syscall: %s" % (diverge_str, add_event))
+
+            # Because of how signals are handled, we need to put the ignore
+            # syscall event before the signals...
+            try:
+                first_signal = itertools.takewhile(lambda e: e.is_a(scribe.EventSignal),
+                                            syscall.proc.events.before(syscall)).next()
+                add_location = Location(first_signal, 'before')
+            except StopIteration:
+                # no signal found
+                pass
+        else:
+            self.info("%s unhandled case" % (diverge_str))
+
+        user_pattern = self.get_user_pattern()
+
+        if (user_pattern is None or user_pattern == '+') and add_event:
+            add_event = Event(add_event, event.proc)
+            if diverge_event.fatal:
+                self.explorer.add_execution(Execution(self,
+                    mutator.InsertEvent(add_location, add_event),
+                    mutation_index=event.index+1))
+            else:
+                self.explorer.add_execution(Execution(self,
+                    mutator.InsertEvent(add_location, add_event),
+                    state=RUNNING, running_session=self.running_session,
+                    mutation_index=event.index))
+
+        if user_pattern is None or user_pattern == '-':
             self.explorer.add_execution(Execution(self,
-                mutator.DeleteSyscall(event),
+                mutator.DeleteEvent(event),
                 mutation_index=event.index+1))
-
-
-            self.print_diff()
-            return
 
         if is_verbose():
             self.print_diff()
 
-        if event != syscall:
-            self.info("pid=%d \033[1;33m%s\033[m at n=%d: %s in %s" %
-                      (pid, diverge_str, num, event, syscall))
-        else:
-            self.info("pid=%d \033[1;33m%s\033[m at n=%d: %s" %
-                       (pid, diverge_str, num, syscall))
-
-        # Because of how signals are handled, we need to put the ignore
-        # syscall event before the signals...
-        try:
-            first_signal = itertools.takewhile(lambda e: e.is_a(scribe.EventSignal),
-                                        syscall.proc.events.before(syscall)).next()
-            add_location = Location(first_signal, 'before')
-        except StopIteration:
-            add_location = Location(syscall, 'before')
-
-        user_pattern = self.get_user_pattern()
-
-        if user_pattern is None or user_pattern == '+':
-            if diverge_event.fatal:
-                self.explorer.add_execution(Execution(self,
-                    mutator.IgnoreNextSyscall(add_location, new_syscall),
-                    mutation_index=syscall.index+1))
-            else:
-                self.explorer.add_execution(Execution(self,
-                    mutator.IgnoreNextSyscall(add_location, new_syscall),
-                    state=RUNNING, running_session=self.running_session,
-                    mutation_index=syscall.index))
-
-
-        if user_pattern is None or user_pattern == '-':
-            if syscall.nr != unistd.NR_exit_group:
-                self.explorer.add_execution(Execution(self,
-                    mutator.DeleteSyscall(syscall),
-                    mutation_index=syscall.index+1))
 
     def success(self):
         self.state = SUCCESS

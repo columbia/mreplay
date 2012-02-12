@@ -9,7 +9,7 @@ from insert_eoq_events import InsertEoqEvents
 from truncate_queue import TruncateQueue
 from bookmark import Bookmark
 from to_raw_events import ToRawEvents
-from delete_syscall import DeleteSyscall
+from delete_event import DeleteEvent
 from nop import Nop
 from insert_event import InsertEvent
 from set_flags import SetFlags, MutateOnTheFly, IgnoreNextSyscall
