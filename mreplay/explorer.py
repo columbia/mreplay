@@ -90,8 +90,12 @@ class Execution:
 
     def print_diff(self):
         self.generate_log()
-        cmd = "diff -U1 <(profiler %s 2> /dev/null) <(profiler %s 2> /dev/null) | tail -n +4" % \
-                  (self.explorer.root.logfile_path, self.logfile_path)
+        def human_log_file(path):
+            return "<(profiler %s | sed 's/serial = [0-9]\+, //g' 2> /dev/null)" % path
+
+        cmd = "diff -U1 %s %s | tail -n +4" % \
+                  (human_log_file(self.explorer.root.logfile_path),
+                          human_log_file(self.logfile_path))
         subprocess.call(['/bin/bash', '-c', cmd])
 
     def info(self, msg):
