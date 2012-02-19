@@ -192,6 +192,8 @@ class Execution:
                 # no signal found
                 pass
         else:
+            if syscall is not None:
+                event = syscall
             self.info("%s unhandled case" % (diverge_str))
 
         user_pattern = self.get_user_pattern()
