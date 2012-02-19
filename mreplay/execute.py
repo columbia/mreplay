@@ -55,16 +55,31 @@ class Execute:
         if self.chroot:
             os.chroot(self.chroot)
             os.chdir(os.getcwd())
+            sudo(['sh', '-c', 'mv /tmp /old-tmp &> /dev/null'])
+            sudo(['mv', '/tmp', '/old-tmp'])
+            sudo(['mkdir', '/tmp'])
+            sudo(['chmod', '777', '/tmp'])
+            sudo(['chmod', '+t',  '/tmp'])
 
     def execute(self, cmd, **kwargs):
         if self.chroot:
             cmd = ['chroot', self.chroot, '/bin/sh', '-c',
+                   'mv /tmp /tmp-old &> /dev/null;'+
+                   'mv /tmp /tmp-old;'+
+                   'mkdir /tmp;'+
+                   'chmod 777 /tmp;'+
+                   'chmod +t /tmp;'+
                    'cd %s; exec %s' % (os.getcwd(), ' '.join(cmd))]
         return sudo(cmd, **kwargs)
 
     def execute_raw(self, cmd, **kwargs):
         if self.chroot:
             cmd = ['chroot', self.chroot, '/bin/sh', '-c',
+                   'mv /tmp /tmp-old &> /dev/null;'+
+                   'mv /tmp /tmp-old;'+
+                   'mkdir /tmp;'+
+                   'chmod 777 /tmp;'+
+                   'chmod +t /tmp;'+
                    'cd %s; exec %s' % (os.getcwd(), ' '.join(cmd))]
         return sudo_raw(cmd, **kwargs)
 
