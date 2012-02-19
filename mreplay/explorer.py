@@ -176,6 +176,12 @@ class Execution:
                 #mutation_index=event.index+1))
             self.info("%s RDTSC" % diverge_str)
 
+        elif isinstance(diverge_event, scribe.EventDivergeEventType) and \
+                diverge_event.type == scribe.EventSyscallExtra.native_type:
+            add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
+                                            scribe.EventSyscallExtra(nr=0xffff, ret=0).encode())
+            self.info("%s syscall: %s" % (diverge_str, add_event))
+
         elif isinstance(diverge_event, scribe.EventDivergeSyscall):
             new_syscall = diverge_event.nr
             add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
