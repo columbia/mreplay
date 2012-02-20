@@ -27,6 +27,19 @@ class DeleteEvent(Mutator):
                         skip_events = False
                 else:
                     yield e
+
+        elif self.event.is_a(scribe.EventResourceLockExtra):
+            skip_events = 0
+            for e in events:
+                match = self.matcher.match(e)
+                if match is not None or skip_events > 0:
+                    if e.is_a(scribe.EventResourceLockExtra):
+                        skip_events += 1
+                    elif e.is_a(scribe.EventResourceUnlock):
+                        skip_events -= 1
+                else:
+                    yield e
+
         else:
             for e in events:
                 match = self.matcher.match(e)
