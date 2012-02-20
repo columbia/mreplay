@@ -154,7 +154,7 @@ class Execution:
         if syscall is not None and syscall != event:
             diverge_str = "%s in %s" % (diverge_str, syscall)
 
-        add_location = Location(event, 'before')
+        add_location = None
         add_event = None
 
         if isinstance(diverge_event, scribe.EventDivergeMemOwned):
@@ -163,17 +163,11 @@ class Execution:
                 add_event = scribe.EventMemOwnedWriteExtra(serial=0, address=address)
             else:
                 add_event = scribe.EventMemOwnedReadExtra(serial=0, address=address)
-            #self.explorer.add_execution(Execution(self,
-                #mutator.InsertEvent(add_location, mevent),
-                #mutation_index=event.index+1))
             self.info("%s memory access" % diverge_str)
 
         elif isinstance(diverge_event, scribe.EventDivergeEventType) and \
                 diverge_event.type == scribe.EventRdtsc.native_type:
             add_event = scribe.EventRdtsc()
-            #self.explorer.add_execution(Execution(self,
-                #mutator.InsertEvent(add_location, rdtsc_event),
-                #mutation_index=event.index+1))
             self.info("%s RDTSC" % diverge_str)
 
         elif isinstance(diverge_event, scribe.EventDivergeEventType) and \
@@ -200,11 +194,17 @@ class Execution:
         else:
             if syscall is not None:
                 event = syscall
+                add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
+                                       scribe.EventSyscallExtra(nr=syscall.nr, ret=0).encode())
             self.info("%s unhandled case" % (diverge_str))
+
 
         user_pattern = self.get_user_pattern()
 
         if (user_pattern is None or user_pattern == '+') and add_event:
+            if add_location is None:
+                add_location = Location(event, 'before')
+
             add_event = Event(add_event, event.proc)
             if diverge_event.fatal:
                 self.explorer.add_execution(Execution(self,
