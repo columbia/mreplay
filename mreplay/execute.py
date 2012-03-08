@@ -60,6 +60,7 @@ class Execute:
             sudo(['mkdir', '/tmp'])
             sudo(['chmod', '777', '/tmp'])
             sudo(['chmod', '+t',  '/tmp'])
+            sudo(['touch', '/tmp/.isolated'])
 
     def execute(self, cmd, **kwargs):
         if self.chroot:
@@ -69,6 +70,7 @@ class Execute:
                    'mkdir /tmp;'+
                    'chmod 777 /tmp;'+
                    'chmod +t /tmp;'+
+                   'touch /tmp/.isolated;'+
                    'cd %s; exec %s' % (os.getcwd(), ' '.join(cmd))]
         return sudo(cmd, **kwargs)
 
@@ -80,6 +82,7 @@ class Execute:
                    'mkdir /tmp;'+
                    'chmod 777 /tmp;'+
                    'chmod +t /tmp;'+
+                   'touch /tmp/.isolated;'+
                    'cd %s; exec %s' % (os.getcwd(), ' '.join(cmd))]
         return sudo_raw(cmd, **kwargs)
 
