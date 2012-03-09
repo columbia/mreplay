@@ -10,6 +10,7 @@ import subprocess
 import unistd
 import execute
 import itertools
+import struct
 from session import Session
 from location import Location
 from mreplay.session import Event
@@ -177,9 +178,10 @@ class Execution:
             self.info("%s syscall: %s" % (diverge_str, add_event))
 
         elif isinstance(diverge_event, scribe.EventDivergeSyscall):
-            new_syscall = diverge_event.nr
+            new_syscall = scribe.EventSyscallExtra(nr=diverge_event.nr, ret=0,
+                           args=diverge_event.args[:struct.calcsize('L')*diverge_event.num_args])
             add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
-                                   scribe.EventSyscallExtra(nr=new_syscall, ret=0).encode())
+                                             new_syscall.encode())
             self.info("%s syscall: %s" % (diverge_str, add_event))
 
             # Because of how signals are handled, we need to put the ignore
@@ -194,8 +196,9 @@ class Execution:
         else:
             if syscall is not None:
                 event = syscall
+                new_syscall = scribe.EventSyscallExtra(nr=syscall.nr, ret=0, args = syscall.args)
                 add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
-                                       scribe.EventSyscallExtra(nr=syscall.nr, ret=0).encode())
+                                                 new_syscall.encode())
             self.info("%s unhandled case" % (diverge_str))
 
 
