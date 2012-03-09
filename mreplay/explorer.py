@@ -256,6 +256,10 @@ class Replayer:
     def __init__(self, execution):
         self.execution = execution
         self.explorer = execution.explorer
+        self.context = None
+
+    def stop(self):
+        self.context.close()
 
     def run(self, exe):
         if is_verbose():
@@ -283,15 +287,14 @@ class Replayer:
                 _on_mutation(event)
 
         self.execution.generate_log()
-        context = None
         with open(self.execution.logfile_path, 'r') as logfile:
-            context = ReplayContext(logfile, backtrace_len = 0)
-            context.add_init_loader(lambda argv, envp: exe.prepare())
-            ps = scribe.Popen(context, replay = True)
+            self.context = ReplayContext(logfile, backtrace_len = 0)
+            self.context.add_init_loader(lambda argv, envp: exe.prepare())
+            ps = scribe.Popen(self.context, replay = True)
 
         def do_check_deadlock(signum, stack):
             try:
-                context.check_deadlock()
+                self.context.check_deadlock()
             except OSError as e:
                 if e.errno != errno.EPERM:
                     logging.error("Cannot check for deadlock (%s)" % str(e))
@@ -299,7 +302,7 @@ class Replayer:
         signal.setitimer(signal.ITIMER_REAL, 1, 1)
 
         try:
-            context.wait()
+            self.context.wait()
             if self.execution is not None:
                 self.execution.success()
         except scribe.DeadlockError:
@@ -308,12 +311,14 @@ class Replayer:
         except scribe.DivergeError as diverge:
             if self.execution is not None:
                 self.execution.diverged(diverge.event)
+        except scribe.ContextClosedError:
+            pass
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0, 0)
             signal.signal(signal.SIGALRM, signal.SIG_DFL)
 
         ps.wait()
-        context.close()
+        self.context.close()
 
 class Explorer:
     def __init__(self, logfile_path, on_the_fly, num_success_to_stop, isolate,
@@ -360,9 +365,11 @@ class Explorer:
 
     def run(self):
         stop_requested = [False]
+        replayer = [None]
         def do_stop(signum, stack):
             logging.info("Stop Requested")
             stop_requested[0] = True
+            replayer[0].stop()
 
         signal.signal(signal.SIGINT, do_stop)
 
@@ -384,7 +391,8 @@ class Explorer:
                 execution.num_run = num_run
                 execution.num_success = len(list([e for e in self.executions if e.state == SUCCESS]))
 
-                Replayer(execution).run(exe)
+                replayer[0] = Replayer(execution)
+                replayer[0].run(exe)
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)
 
