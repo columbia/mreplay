@@ -1,0 +1,11 @@
+#!/usr/bin/python
+
+import sys
+from mreplay import execute
+
+args = sys.argv
+if len(args) < 2:
+    args.append('zsh')
+
+with execute.ExecuteJail(persist='/persist') as jailed:
+    jailed.execute(args[1:])
