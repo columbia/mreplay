@@ -35,3 +35,8 @@ class MutateOnTheFly(SetFlags):
         SetFlags.__init__(self, Location(Event(Start(), session.init_proc), 'after'),
                           scribe.SCRIBE_PS_ENABLE_ALL & ~scribe.SCRIBE_PS_ENABLE_STRICT_RPY,
                           scribe.SCRIBE_PERMANANT)
+
+class SetFlagsInit(SetFlags):
+    def __init__(self, session, flags):
+        SetFlags.__init__(self, Location(Event(Start(), session.init_proc), 'after'),
+                          flags, scribe.SCRIBE_PERMANANT)

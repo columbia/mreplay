@@ -12,4 +12,4 @@ from to_raw_events import ToRawEvents
 from delete_event import DeleteEvent
 from nop import Nop
 from insert_event import InsertEvent
-from set_flags import SetFlags, MutateOnTheFly, IgnoreNextSyscall
+from set_flags import SetFlags, MutateOnTheFly, IgnoreNextSyscall, SetFlagsInit

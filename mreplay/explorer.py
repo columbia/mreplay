@@ -235,7 +235,7 @@ class Execution:
         self.print_diff()
 
 class RootExecution(Execution):
-    def __init__(self, explorer, on_the_fly):
+    def __init__(self, explorer, on_the_fly, fixed_io):
         class DummyParent:
             pass
         parent = DummyParent()
@@ -244,8 +244,15 @@ class RootExecution(Execution):
         parent.explorer = explorer
         parent.mutated_session = load_session(explorer.logfile_path)
 
+        neg_flags = 0
         if on_the_fly:
-            m = mutator.MutateOnTheFly(parent.mutated_session)
+            neg_flags |= scribe.SCRIBE_PS_STRICT_REPLAY
+        if not fixed_io:
+            neg_flags |= scribe.SCRIBE_PS_FIXED_IO
+
+        if neg_flags != 0:
+            m = mutator.SetFlagsInit(parent.mutated_session,
+                                     scribe.SCRIBE_PS_ENABLE_ALL & ~neg_flags)
         else:
             m = mutator.Nop()
         Execution.__init__(self, parent, m)
@@ -324,8 +331,8 @@ class Replayer:
         self.context.close()
 
 class Explorer:
-    def __init__(self, logfile_path, on_the_fly, num_success_to_stop, isolate,
-                 linear, pattern):
+    def __init__(self, logfile_path, on_the_fly, fixed_io,
+                 num_success_to_stop, isolate, linear, pattern):
         self.logfile_path = logfile_path
         self.num_success_to_stop = num_success_to_stop
         self.isolate = isolate
@@ -336,7 +343,7 @@ class Explorer:
         self.executions = []
         self.make_mreplay_dir()
         self._next_id = 0
-        self.root = RootExecution(self, on_the_fly)
+        self.root = RootExecution(self, on_the_fly, fixed_io)
 
     def get_new_id(self):
         self._next_id += 1

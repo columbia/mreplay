@@ -18,6 +18,9 @@ def main():
     parser.add_option("-f", "--on-the-fly",
             action="store_true", dest="on_the_fly", default=False,
             help="Use the on the fly optimization")
+    parser.add_option("-x", "--fixed-io",
+            action="store_true", dest="fixed_io", default=False,
+            help="Use original read/write() buffer size")
     parser.add_option("-i", "--isolate",
             action="store_true", dest="isolate", default=False,
             help="Isolate the file system")
@@ -39,7 +42,7 @@ def main():
 
     configure_logging((logging.INFO, logging.DEBUG)[options.verbose])
 
-    Explorer(logfile_path, options.on_the_fly,
+    Explorer(logfile_path, options.on_the_fly, options.fixed_io,
              options.num_success_to_stop, options.isolate, options.linear,
              options.pattern).run()
 
