@@ -128,9 +128,10 @@ class Execution:
         if diverge_event is None:
             self.info("\033[1;31m FATAL ERROR -- FIXME\033[m")
         pid = diverge_event.pid
-        num = diverge_event.num_ev_consumed
-        if diverge_event.fatal:
-            num -= 1
+        num = diverge_event.num_ev_consumed - 1
+        if not diverge_event.fatal:
+            if isinstance(diverge_event, scribe.EventDivergeSyscall):
+                num += 1
 
         self.adjust_score(num)
         self.state = FAILED
@@ -212,9 +213,15 @@ class Execution:
 
         if (user_pattern is None or user_pattern == 'r') and replace_event:
             replace_event = Event(replace_event, event.proc)
-            self.explorer.add_execution(Execution(self,
-                mutator.Replace({event: replace_event}),
-                mutation_index=event.index+1))
+            if diverge_event.fatal:
+                self.explorer.add_execution(Execution(self,
+                    mutator.Replace({event: replace_event}),
+                    mutation_index=event.index))
+            else:
+                self.explorer.add_execution(Execution(self,
+                    mutator.Replace({event: replace_event}),
+                    state=RUNNING, running_session=self.running_session,
+                    mutation_index=event.index))
 
         if (user_pattern is None or user_pattern == '+') and add_event:
             if add_location is None:
