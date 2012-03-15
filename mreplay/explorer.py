@@ -157,6 +157,7 @@ class Execution:
 
         add_location = None
         add_event = None
+        replace_event = None
 
         if isinstance(diverge_event, scribe.EventDivergeMemOwned):
             address = diverge_event.address
@@ -171,12 +172,6 @@ class Execution:
             add_event = scribe.EventRdtsc()
             self.info("%s RDTSC" % diverge_str)
 
-        elif isinstance(diverge_event, scribe.EventDivergeEventType) and \
-                diverge_event.type == scribe.EventSyscallExtra.native_type:
-            add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
-                                            scribe.EventSyscallExtra(nr=0xffff, ret=0).encode())
-            self.info("%s syscall: %s" % (diverge_str, add_event))
-
         elif isinstance(diverge_event, scribe.EventDivergeSyscall):
             new_syscall = scribe.EventSyscallExtra(nr=diverge_event.nr, ret=0,
                            args=diverge_event.args[:struct.calcsize('L')*diverge_event.num_args])
@@ -186,13 +181,24 @@ class Execution:
 
             # Because of how signals are handled, we need to put the ignore
             # syscall event before the signals...
-            try:
-                first_signal = itertools.takewhile(lambda e: e.is_a(scribe.EventSignal),
-                                            syscall.proc.events.before(syscall)).next()
-                add_location = Location(first_signal, 'before')
-            except StopIteration:
-                # no signal found
-                pass
+            if syscall is not None:
+                try:
+                    first_signal = itertools.takewhile(lambda e: e.is_a(scribe.EventSignal),
+                                                syscall.proc.events.before(syscall)).next()
+                    add_location = Location(first_signal, 'before')
+                except StopIteration:
+                    # no signal found
+                    pass
+
+        elif isinstance(diverge_event, scribe.EventDivergeSyscallRet):
+            event = syscall
+            new_syscall = scribe.EventSyscallExtra(nr=syscall.nr, ret=0, args=syscall.args)
+            add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
+                                             new_syscall.encode())
+            replace_event = scribe.EventSyscallExtra(nr=syscall.nr, ret=diverge_event.ret,
+                                                     args=syscall.args)
+            self.info("%s ret value mismatch" % diverge_str)
+
         else:
             if syscall is not None:
                 event = syscall
@@ -203,6 +209,12 @@ class Execution:
 
 
         user_pattern = self.get_user_pattern()
+
+        if (user_pattern is None or user_pattern == 'r') and replace_event:
+            replace_event = Event(replace_event, event.proc)
+            self.explorer.add_execution(Execution(self,
+                mutator.Replace({event: replace_event}),
+                mutation_index=event.index+1))
 
         if (user_pattern is None or user_pattern == '+') and add_event:
             if add_location is None:
