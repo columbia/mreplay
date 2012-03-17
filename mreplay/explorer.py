@@ -254,7 +254,7 @@ class Execution:
         self.print_diff()
 
 class RootExecution(Execution):
-    def __init__(self, explorer, on_the_fly, fixed_io):
+    def __init__(self, explorer, on_the_fly, var_io):
         class DummyParent:
             pass
         parent = DummyParent()
@@ -266,7 +266,7 @@ class RootExecution(Execution):
         neg_flags = 0
         if on_the_fly:
             neg_flags |= scribe.SCRIBE_PS_STRICT_REPLAY
-        if not fixed_io:
+        if var_io:
             neg_flags |= scribe.SCRIBE_PS_FIXED_IO
 
         if neg_flags != 0:
@@ -350,7 +350,7 @@ class Replayer:
         self.context.close()
 
 class Explorer:
-    def __init__(self, logfile_path, on_the_fly, fixed_io,
+    def __init__(self, logfile_path, on_the_fly, var_io,
                  num_success_to_stop, isolate, linear, pattern):
         self.logfile_path = logfile_path
         self.num_success_to_stop = num_success_to_stop
@@ -362,7 +362,7 @@ class Explorer:
         self.executions = []
         self.make_mreplay_dir()
         self._next_id = 0
-        self.root = RootExecution(self, on_the_fly, fixed_io)
+        self.root = RootExecution(self, on_the_fly, var_io)
 
     def get_new_id(self):
         self._next_id += 1
