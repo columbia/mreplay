@@ -13,3 +13,4 @@ from delete_event import DeleteEvent
 from nop import Nop
 from insert_event import InsertEvent
 from set_flags import SetFlags, MutateOnTheFly, IgnoreNextSyscall, SetFlagsInit
+from split_on_bookmark import SplitOnBookmark

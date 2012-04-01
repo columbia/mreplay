@@ -7,6 +7,6 @@ setup(
     author = 'Nicolas Viennot',
     author_email = 'nicolas@viennot.biz',
     packages=['mreplay', 'mreplay.mutator'],
-    scripts=['scripts/mreplay', 'scripts/mrecord', 'scripts/isolate'],
+    scripts=['scripts/mreplay', 'scripts/mrecord', 'scripts/isolate', 'scripts/extract'],
     requires=['networkx', 'argparse', 'scribe', 'pygraphviz']
 )

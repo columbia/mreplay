@@ -350,3 +350,219 @@ def test_bookmark_and_truncate():
                 ]
 
     assert_equal(list(out), should_be)
+
+def test_bookmark_filter():
+    def assert_events_equal(l1, l2):
+        # XXX FIXME.If we don't wrap l1 and l2 in lists here, calling
+        # Session(l1) modifies l1.
+        l1 = list(l1)
+        l2 = list(l2)
+
+        l1 = Session(l1) | InsertPidEvents() | ToRawEvents()
+        l2 = Session(l2) | InsertPidEvents() | ToRawEvents()
+        assert_equal(list(l1), list(l2))
+
+    events_original = [
+               scribe.EventInit(),                            # 0
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventFence(),                            # 2
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=-1), # 3
+               scribe.EventBookmark(id=0, npr=1),             # 4
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=2),  # 5
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=3),  # 6
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=-1), # 7
+
+                # stuff from 3
+               scribe.EventPid(pid=3),                        # 17
+               scribe.EventFence(),                            # 2
+
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventBookmark(id=1, npr=3),             # 8
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=3),  # 9
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=2),  # 10
+               scribe.EventBookmark(id=2, npr=2),             # 11
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=4),  # 12
+               scribe.EventSyscallExtra(nr=NR_exit,  ret=0),  # 13
+               scribe.EventQueueEof(),
+
+
+               scribe.EventPid(pid=2),                        # 14
+               scribe.EventSyscallExtra(nr=NR_write,  ret=1),   # 23
+               scribe.EventBookmark(id=1, npr=3),             # 15
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=4),  # 16
+               scribe.EventFence(),
+               scribe.EventQueueEof(),
+
+
+               scribe.EventPid(pid=3),                        # 17
+               scribe.EventSyscallExtra(nr=NR_read,  ret=0),  # 18
+               scribe.EventSyscallExtra(nr=NR_write,  ret=1),   # 23
+               scribe.EventBookmark(id=1, npr=3),             # 19
+               scribe.EventSyscallExtra(nr=NR_exit,  ret=0),  # 20
+               scribe.EventQueueEof(),
+
+               scribe.EventPid(pid=4),                        # 21
+               scribe.EventSyscallExtra(nr=NR_write,  ret=1),   # 23
+               scribe.EventBookmark(id=2, npr=2),             # 22
+               scribe.EventSyscallExtra(nr=NR_exit,  ret=0),   # 23
+               scribe.EventQueueEof(),
+             ]
+
+    events = [
+               scribe.EventInit(),                            # 0
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventFence(),                            # 2
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=-1), # 3
+
+                # stuff from 3
+               scribe.EventPid(pid=3),                        # 17
+
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventBookmark(id=0, npr=1),             # 4
+
+               scribe.EventPid(pid=3),                        # 17
+               scribe.EventFence(),                            # 2
+
+               scribe.EventPid(pid=2),                        # 14
+               scribe.EventSyscallExtra(nr=NR_write,  ret=1),   # 23
+
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=2),  # 5
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=3),  # 6
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=-1), # 7
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventBookmark(id=1, npr=3),             # 8
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=3),  # 9
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=2),  # 10
+
+               scribe.EventPid(pid=2),                        # 14
+               scribe.EventBookmark(id=1, npr=3),             # 15
+
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventBookmark(id=2, npr=2),             # 11
+
+               scribe.EventPid(pid=3),                        # 17
+               scribe.EventSyscallExtra(nr=NR_read,  ret=0),  # 18
+
+               scribe.EventPid(pid=2),                        # 14
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=4),  # 16
+
+               scribe.EventPid(pid=3),                        # 17
+               scribe.EventSyscallExtra(nr=NR_write,  ret=1),   # 23
+               scribe.EventBookmark(id=1, npr=3),             # 19
+               scribe.EventPid(pid=3),                        # 17
+               scribe.EventSyscallExtra(nr=NR_exit,  ret=0),  # 20
+
+               scribe.EventPid(pid=3),                        # 1
+               scribe.EventQueueEof(),
+
+               scribe.EventPid(pid=4),                        # 21
+               scribe.EventSyscallExtra(nr=NR_write,  ret=1),   # 23
+
+               scribe.EventPid(pid=2),                        # 1
+               scribe.EventPid(pid=2),                        # 1
+               scribe.EventFence(),
+
+               scribe.EventPid(pid=2),                        # 1
+               scribe.EventQueueEof(),
+
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=4),  # 12
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventSyscallExtra(nr=NR_exit,  ret=0),  # 13
+
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventQueueEof(),
+
+               scribe.EventPid(pid=4),                        # 21
+               scribe.EventBookmark(id=2, npr=2),             # 22
+               scribe.EventPid(pid=4),                        # 21
+               scribe.EventSyscallExtra(nr=NR_exit,  ret=0),   # 23
+               scribe.EventPid(pid=4),                        # 1
+               scribe.EventQueueEof(),
+             ]
+
+
+    assert_events_equal(events_original, events)
+
+
+    # init: e0
+    #
+    # p1: e2 e3 b0 e5l       e6 e7 b1         e9  e10  b2       e12 e13
+    #               \        \                /   /             /
+    # p2:            +--      \    b1 e16    /  -+             /
+    #                          \       \    /                 /
+    # p3:                      e18 b1   \ -+                 /
+    #                                    \                  /
+    # p4:                                 +--          b2 e23
+
+    out = events | SplitOnBookmark(cutoff=0)
+    should_be = [
+               scribe.EventInit(),                            # 0
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventFence(),                            # 2
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=-1), # 3
+               scribe.EventBookmark(id=0, npr=1),             # 4
+                ]
+    assert_events_equal(out, should_be)
+
+    out = events | SplitOnBookmark(cutoff=1)
+    should_be = [
+               scribe.EventInit(),                            # 0
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventFence(),                            # 2
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=-1), # 3
+               scribe.EventBookmark(id=0, npr=1),             # 4
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=2),  # 5
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=3),  # 6
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=-1), # 7
+               scribe.EventBookmark(id=1, npr=3),             # 8
+               scribe.EventPid(pid=2),                        # 14
+               scribe.EventSyscallExtra(nr=NR_write,  ret=1),   # 23
+               scribe.EventBookmark(id=1, npr=3),             # 15
+               scribe.EventPid(pid=3),                        # 17
+               scribe.EventFence(),                            # 2
+               scribe.EventSyscallExtra(nr=NR_read,  ret=0),  # 18
+               scribe.EventSyscallExtra(nr=NR_write,  ret=1),   # 23
+               scribe.EventBookmark(id=1, npr=3),             # 19
+                ]
+    assert_events_equal(out, should_be)
+
+    out = events | SplitOnBookmark(cutoff=2)
+    should_be = [
+               scribe.EventInit(),                            # 0
+               scribe.EventPid(pid=1),                        # 1
+               scribe.EventFence(),                            # 2
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=-1), # 3
+               scribe.EventBookmark(id=0, npr=1),             # 4
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=2),  # 5
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=3),  # 6
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=-1), # 7
+               scribe.EventBookmark(id=1, npr=3),             # 8
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=3),  # 9
+               scribe.EventSyscallExtra(nr=NR_wait4, ret=2),  # 10
+               scribe.EventBookmark(id=2, npr=2),             # 11
+               scribe.EventPid(pid=2),                        # 14
+               scribe.EventSyscallExtra(nr=NR_write,  ret=1),   # 23
+               scribe.EventBookmark(id=1, npr=3),             # 15
+               scribe.EventSyscallExtra(nr=NR_fork,  ret=4),  # 16
+               scribe.EventFence(),
+               scribe.EventQueueEof(),
+               scribe.EventPid(pid=3),                        # 17
+               scribe.EventFence(),                            # 2
+               scribe.EventSyscallExtra(nr=NR_read,  ret=0),  # 18
+               scribe.EventSyscallExtra(nr=NR_write,  ret=1),   # 23
+               scribe.EventBookmark(id=1, npr=3),             # 19
+               scribe.EventSyscallExtra(nr=NR_exit,  ret=0),  # 20
+               scribe.EventQueueEof(),
+               scribe.EventPid(pid=4),                        # 21
+               scribe.EventSyscallExtra(nr=NR_write,  ret=1),   # 23
+               scribe.EventBookmark(id=2, npr=2),             # 22
+                ]
+    assert_events_equal(out, should_be)
+
+    out = events | SplitOnBookmark(cutoff=20)
+    assert_events_equal(out, events)
