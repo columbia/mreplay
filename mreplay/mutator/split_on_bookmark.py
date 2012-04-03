@@ -75,9 +75,9 @@ class SplitOnBookmark(Mutator):
                     return
                 else:
                     add_pending(pid, e)
-                    for (pid, events) in pending_events.items():
-                        for e in events:
-                            for x in self.output_tail(pid, e):
+                    for (pid_, events_) in pending_events.items():
+                        for e_ in events_:
+                            for x in self.output_tail(pid_, e_):
                                 yield x
                     pending_events.clear()
                     self.stream_tail = True
