@@ -8,6 +8,7 @@ class SplitOnBookmark(Mutator):
         self.do_tail = do_tail
         self.do_head = not do_tail
         self.output_pid = 0
+        self.stream_tail = False
 
     # Output event, adding pid if necessary
     def output(self, pid, e):
@@ -64,12 +65,23 @@ class SplitOnBookmark(Mutator):
                 pid = e.pid
                 continue
 
+            if self.stream_tail:
+                for x in self.output_tail(pid, e):
+                    yield x
+                continue
+
             if npr == bookmarks_count and len(streaming) == 0:
                 if self.do_head:
                     return
                 else:
-                    for x in self.output_tail(pid, e):
-                        yield x
+                    add_pending(pid, e)
+                    for (pid, events) in pending_events.items():
+                        for e in events:
+                            for x in self.output_tail(pid, e):
+                                yield x
+                    pending_events.clear()
+                    self.stream_tail = True
+                    continue
 
             if pid in done:
                 for x in self.output_tail(pid, e):
@@ -90,6 +102,8 @@ class SplitOnBookmark(Mutator):
                 for x in self.output_head(pid, e):
                     yield x
                 done[pid] = True
+                if pid in streaming:
+                    del streaming[pid]
 
                 continue
 
@@ -108,6 +122,8 @@ class SplitOnBookmark(Mutator):
                 # Delete from streaming so that we can count streaming. This
                 # won't affect correctness and is only an optimization because
                 # EOF is the last event for a pid by contract.
+                # Note: the event is already yielded
+                done[pid] = True
                 if pid in streaming:
                     del streaming[pid]
 
