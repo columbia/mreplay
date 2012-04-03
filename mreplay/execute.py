@@ -64,6 +64,7 @@ class Execute:
 
     def execute(self, cmd, **kwargs):
         if self.chroot:
+            cmd = map(lambda c: "\"%s\"" % c, cmd)
             cmd = ['chroot', self.chroot, '/bin/sh', '-c',
                    'mv /tmp /tmp-old &> /dev/null;'+
                    'mv /tmp /tmp-old;'+
@@ -76,6 +77,7 @@ class Execute:
 
     def execute_raw(self, cmd, **kwargs):
         if self.chroot:
+            cmd = map(lambda c: "\"%s\"" % c, cmd)
             cmd = ['chroot', self.chroot, '/bin/sh', '-c',
                    'mv /tmp /tmp-old &> /dev/null;'+
                    'mv /tmp /tmp-old;'+
