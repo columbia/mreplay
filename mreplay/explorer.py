@@ -14,6 +14,7 @@ import struct
 from session import Session
 from location import Location
 from mreplay.session import Event
+import datetime
 
 MREPLAY_DIR = ".mreplay"
 
@@ -312,8 +313,23 @@ class Replayer:
             self.execution.num_success = old_execution.num_success
 
         class ReplayContext(scribe.Context):
+            def __init__(self, logfile, **kargs):
+                scribe.Context.__init__(self, logfile, **kargs)
+                self.start = datetime.datetime.now()
+                self.last = self.start
+
             def on_mutation(self, event):
                 _on_mutation(event)
+
+            def on_bookmark(self, id, npr):
+                now = datetime.datetime.now()
+                dstart = now - self.start
+                dlast = now - self.last
+                self.last = now
+                print("Reached bmark %d at %d.%ds, +%d.%ds" %
+                        (id, dstart.seconds, dstart.microseconds,
+                            dlast.seconds, dlast.microseconds))
+                self.resume()
 
         self.execution.generate_log()
         with open(self.execution.logfile_path, 'r') as logfile:
