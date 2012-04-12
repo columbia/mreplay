@@ -188,6 +188,9 @@ class Execution:
             add_event = scribe.EventRdtsc()
             self.info("%s RDTSC" % diverge_str)
 
+        elif isinstance(diverge_event, scribe.EventDivergeEventType):
+            self.info("%s deleting internal event" % diverge_str)
+
         elif isinstance(diverge_event, scribe.EventDivergeSyscall):
             new_syscall = scribe.EventSyscallExtra(nr=diverge_event.nr, ret=0,
                            args=diverge_event.args[:struct.calcsize('L')*diverge_event.num_args])
