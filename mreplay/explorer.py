@@ -63,7 +63,6 @@ class Execution:
 
         events  = self.mutated_session
         events |= mutator.AdjustResources()
-        events |= mutator.InsertEoqEvents()
         events |= mutator.InsertPidEvents()
         events |= mutator.ToRawEvents()
 
