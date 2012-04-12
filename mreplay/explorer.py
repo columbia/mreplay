@@ -85,8 +85,23 @@ class Execution:
 
     @property
     def mutated_session(self):
-        if self._session is not None and self._running_session is None:
+        if self._session is not None:
             return self._session
+
+        if self.depth > 180:
+            path = []
+            current = self.parent
+            while current.depth > 10 and current._session is None:
+                path.append(current)
+                current = current.parent
+            path.reverse()
+
+            i = 0
+            for p in path:
+                i += 1
+                if i % 200 == 0:
+                    p.session
+
         return self.parent.mutated_session | self.mutation
 
     def print_diff(self):
