@@ -15,6 +15,7 @@ from session import Session
 from location import Location
 from mreplay.session import Event
 import datetime
+import math
 
 MREPLAY_DIR = ".mreplay"
 
@@ -22,6 +23,32 @@ TODO = 0
 SUCCESS = 1
 FAILED = 2
 RUNNING = 3
+
+def head(seq, n=1):
+    iterator = iter(seq)
+    for i in xrange(n):
+        yield iterator.next()
+
+
+def sys_match(s1, s2):
+    if s1.nr != s2.nr:
+        return False
+
+    def get_args(s):
+        return struct.unpack("L" * (len(s.args)/4), s.args)
+
+    def is_addr(val):
+        return (val & 0xff800000) != 0
+
+    for (a1, a2) in zip(get_args(s1), get_args(s2)):
+        if a1 == a2:
+            continue
+        if is_addr(a1) and is_addr(a2):
+            continue
+        return False
+
+    return True
+
 
 def is_verbose():
     return logging.getLogger().getEffectiveLevel() == logging.DEBUG
@@ -47,6 +74,22 @@ class Execution:
         self.name = None
         self.mutation_index = mutation_index
         self.id = self.explorer.get_new_id()
+
+        if isinstance(mutation, mutator.InsertEvent):
+            self.score += self.explorer.add_constant
+        elif isinstance(mutation, mutator.DeleteEvent):
+            if len(mutation.events) < self.explorer.max_delete:
+                self.score += 15
+
+            self.score += self.explorer.del_constant * len(mutation.events)
+        elif isinstance(mutation, mutator.Nop):
+            pass
+        elif isinstance(mutation, mutator.SetFlagsInit):
+            pass
+        elif isinstance(mutation, mutator.Replace):
+            math.min(self.explorer.add_constant, self.explorer.del_constant)
+        else:
+            raise RuntimeError("Mutator type: %s" % mutation.__class__)
 
     def __str__(self):
         if self.name is None:
@@ -109,7 +152,7 @@ class Execution:
         def human_log_file(path):
             return "<(profiler %s | sed 's/serial = [0-9]\+, //g' 2> /dev/null)" % path
 
-        cmd = "diff -U1 %s %s | tail -n +4" % \
+        cmd = "colordiff -U1 %s %s | tail -n +4" % \
                   (human_log_file(self.explorer.root.logfile_path),
                           human_log_file(self.logfile_path))
         subprocess.call(['/bin/bash', '-c', cmd])
@@ -126,9 +169,9 @@ class Execution:
     def adjust_score(self, index):
         segment_length = index - self.mutation_index
         if self.explorer.linear:
-            self.score += segment_length
+            self.score += segment_length * self.explorer.match_constant
         else:
-            self.score += segment_length**2
+            self.score = math.sqrt(self.score**2 + segment_length**2 * self.explorer.match_constant)
 
     def get_user_pattern(self):
         pattern = self.explorer.pattern
@@ -171,6 +214,7 @@ class Execution:
         if syscall is not None and syscall != event:
             diverge_str = "%s in %s" % (diverge_str, syscall)
 
+        new_syscall = None
         add_location = None
         add_event = None
         replace_event = None
@@ -257,13 +301,23 @@ class Execution:
                     mutation_index=event.index))
 
         if user_pattern is None or user_pattern == '-':
+            events = []
+            if new_syscall is not None:
+                try:
+                    events = list(itertools.takewhile(
+                            lambda e: not sys_match(e, new_syscall),
+                            head(event.proc.syscalls.after(event.syscall),
+                                self.explorer.max_delete)))
+                except AttributeError:
+                    pass
+            events.insert(0, event)
+
             self.explorer.add_execution(Execution(self,
-                mutator.DeleteEvent(event),
+                mutator.DeleteEvent(events),
                 mutation_index=event.index+1))
 
-        if is_verbose():
+        if is_verbose() and diverge_event.fatal:
             self.print_diff()
-
 
     def success(self):
         self.state = SUCCESS
@@ -384,7 +438,13 @@ class Replayer:
 
 class Explorer:
     def __init__(self, logfile_path, on_the_fly, var_io,
-                 num_success_to_stop, isolate, linear, pattern):
+                 num_success_to_stop, isolate, linear, pattern,
+                 add_constant, del_constant, match_constant,
+                 max_delete):
+        self.add_constant = add_constant
+        self.del_constant = del_constant
+        self.match_constant = match_constant
+        self.max_delete = max_delete
         self.logfile_path = logfile_path
         self.num_success_to_stop = num_success_to_stop
         self.isolate = isolate

@@ -25,11 +25,28 @@ def main():
             action="store_true", dest="isolate", default=False,
             help="Isolate the file system")
     parser.add_option("-l", "--linear",
-            action="store_true", dest="linear", default=False,
+            action="store_true", dest="linear", default=True,
             help="Use a linear scaling")
     parser.add_option("-s", "--num-success-stop",
             type="int", dest="num_success_to_stop", default=1,
             help="Stop after how many successes")
+
+    parser.add_option("-a", "--add-constant",
+            type="int", dest="add_constant", default=-1,
+            help="Add constant")
+
+    parser.add_option("-d", "--del-constant",
+            type="int", dest="del_constant", default=-1,
+            help="Del constant")
+
+    parser.add_option("-m", "--match-constant",
+            type="int", dest="match_constant", default=1,
+            help="Match constant")
+
+    parser.add_option("-D", "--max-delete",
+            type="int", dest="max_delete", default=100,
+            help="Max events to delete at once")
+
     parser.add_option("-p", "--pattern",
             dest="pattern", help="Replay pattern, *:replace, +: add, -:remove, .:default")
 
@@ -44,7 +61,8 @@ def main():
 
     Explorer(logfile_path, options.on_the_fly, options.var_io,
              options.num_success_to_stop, options.isolate, options.linear,
-             options.pattern).run()
+             options.pattern, options.add_constant, options.del_constant,
+             options.match_constant, options.max_delete).run()
 
 if __name__ == '__main__':
     main()

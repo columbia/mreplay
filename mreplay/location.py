@@ -23,6 +23,14 @@ class Start:
     def __str__(self):
         return 'start'
 
+    @property
+    def index(self):
+        return 0
+
 class End:
     def __str__(self):
         return 'end'
+
+    @property
+    def index(self):
+        return -1
