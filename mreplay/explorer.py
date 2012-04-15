@@ -107,9 +107,13 @@ class Execution:
         return self.name
 
     def __eq__(self, other):
-        a = map(lambda s: sorted(s), self.signature())
-        b = map(lambda s: sorted(s), other.signature())
+        a = map(lambda s: ''.join(sorted(s)), self.signature())
+        b = map(lambda s: ''.join(sorted(s)), other.signature())
         return a == b
+
+    def __hash__(self):
+        a = map(lambda s: ''.join(sorted(s)), self.signature())
+        return hash(','.join(a))
 
     @property
     def logfile_path(self):
@@ -203,6 +207,8 @@ class Execution:
 
         self.info("adjusting score %d -> %d" %(old_score, self.score))
 
+        assert old_score <= self.score
+
     def get_user_pattern(self):
         pattern = self.explorer.pattern
         if pattern is not None and self.depth < len(pattern):
@@ -226,6 +232,8 @@ class Execution:
         self.update_progress(pid, num)
         self.state = FAILED
         event = self.running_session.processes[pid].events[num]
+
+        assert event.index == num
 
         syscall = None
         try:
@@ -345,7 +353,7 @@ class Execution:
 
             self.explorer.add_execution(self, Execution(self,
                 mutator.DeleteEvent(events),
-                mutation_index=event.index+1, mutation_pid=pid))
+                mutation_index=event.index, mutation_pid=pid))
 
         if is_verbose() and diverge_event.fatal:
             self.print_diff()
@@ -486,6 +494,7 @@ class Explorer:
             pattern = pattern.replace('*','-+')
         self.pattern = pattern
         self.executions = []
+        self.execution_set = set()
         self.make_mreplay_dir()
         self._next_id = 0
         self.root = RootExecution(self, on_the_fly, var_io)
@@ -500,12 +509,11 @@ class Explorer:
         os.makedirs(MREPLAY_DIR)
 
     def add_execution(self, parent, child):
-        if child.state == TODO:
-            if child in self.executions:
-                parent.info("NOT adding [%d], score: %d (%d) %s" %
-                        (child.id, child.score, child.score - parent.score,
-                        child.signature()))
-                return
+        if child in self.execution_set:
+            parent.info("NOT adding [%d], score: %d (%d) %s" %
+                    (child.id, child.score, child.score - parent.score,
+                    child.signature()))
+            return
 
         if parent is not None:
             parent.info("Adding [%d], score: %d (%d) %s" %
@@ -513,6 +521,7 @@ class Explorer:
                     child.signature()))
 
         self.executions.append(child)
+        self.execution_set.add(child)
 
     def num_state(self, state):
         return len(filter(lambda e: e.state == state, self.executions))
