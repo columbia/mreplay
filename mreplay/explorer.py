@@ -89,7 +89,7 @@ class Execution:
         elif isinstance(mutation, mutator.SetFlagsInit):
             pass
         elif isinstance(mutation, mutator.Replace):
-            math.min(self.explorer.add_constant, self.explorer.del_constant)
+            pass
         else:
             raise RuntimeError("Mutator type: %s" % mutation.__class__)
 
@@ -169,11 +169,16 @@ class Execution:
             self.print_diff()
 
     def adjust_score(self, index):
+        old_score = self.score
         segment_length = index - self.mutation_index
+        self.info("mutation_index: %d, diverged on: %d" %
+                (self.mutation_index, index))
         if self.explorer.linear:
             self.score += segment_length * self.explorer.match_constant
         else:
             self.score = math.sqrt(self.score**2 + segment_length**2 * self.explorer.match_constant)
+
+        self.info("adjusting score %d -> %d" %(old_score, self.score))
 
     def get_user_pattern(self):
         pattern = self.explorer.pattern
@@ -278,11 +283,11 @@ class Execution:
         if (user_pattern is None or user_pattern == 'r') and replace_event:
             replace_event = Event(replace_event, event.proc)
             if diverge_event.fatal:
-                self.explorer.add_execution(Execution(self,
+                self.explorer.add_execution(self, Execution(self,
                     mutator.Replace({event: replace_event}),
                     mutation_index=event.index))
             else:
-                self.explorer.add_execution(Execution(self,
+                self.explorer.add_execution(self, Execution(self,
                     mutator.Replace({event: replace_event}),
                     state=RUNNING, running_session=self.running_session,
                     mutation_index=event.index))
@@ -293,11 +298,11 @@ class Execution:
 
             add_event = Event(add_event, event.proc)
             if diverge_event.fatal:
-                self.explorer.add_execution(Execution(self,
+                self.explorer.add_execution(self, Execution(self,
                     mutator.InsertEvent(add_location, add_event),
                     mutation_index=event.index+1))
-            else:
-                self.explorer.add_execution(Execution(self,
+            elif replace_event is None:
+                self.explorer.add_execution(self, Execution(self,
                     mutator.InsertEvent(add_location, add_event),
                     state=RUNNING, running_session=self.running_session,
                     mutation_index=event.index))
@@ -314,7 +319,7 @@ class Execution:
                     pass
             events.insert(0, event)
 
-            self.explorer.add_execution(Execution(self,
+            self.explorer.add_execution(self, Execution(self,
                 mutator.DeleteEvent(events),
                 mutation_index=event.index+1))
 
@@ -468,12 +473,16 @@ class Explorer:
             shutil.rmtree(MREPLAY_DIR)
         os.makedirs(MREPLAY_DIR)
 
-    def add_execution(self, execution):
-        if execution.state == TODO:
+    def add_execution(self, parent, child):
+        if child.state == TODO:
             # We need to check if it's not a duplicate right here
             pass
 
-        self.executions.append(execution)
+        if parent is not None:
+            parent.info("Adding [%d], score: %d (%d)" %
+                    (child.id, child.score, child.score - parent.score))
+
+        self.executions.append(child)
 
     def num_state(self, state):
         return len(filter(lambda e: e.state == state, self.executions))
@@ -497,7 +506,7 @@ class Explorer:
 
         signal.signal(signal.SIGINT, do_stop)
 
-        self.add_execution(self.root)
+        self.add_execution(None, self.root)
 
         num_run = 0
         while not stop_requested[0]:
