@@ -60,7 +60,7 @@ def load_session(logfile_path):
 
 class Execution:
     def __init__(self, parent, mutation, state=TODO,
-                 running_session=None, mutation_index=0, mutation_pid=0):
+                 running_session=None, mutation_index=0, fly_offset_delta=0, mutation_pid=0):
         self.explorer = parent.explorer
         self.parent = parent
         self.score = parent.score
@@ -73,8 +73,17 @@ class Execution:
         self._running_session = running_session
         self.name = None
 
+        self.fly_offsets = dict(parent.fly_offsets)
+        self.fly_offsets[mutation_pid] = self.fly_offsets.get(mutation_pid, 0) + fly_offset_delta
+
         self.mutation_indices = dict(parent.mutation_indices)
         self.mutation_indices[mutation_pid] = mutation_index
+
+        if self._running_session is None:
+            for (pid, offset) in self.fly_offsets.items():
+                if offset > 0:
+                    self.mutation_indices[pid] += offset - 1
+            self.fly_offsets = {}
 
         self.id = self.explorer.get_new_id()
 
@@ -91,7 +100,7 @@ class Execution:
             except AttributeError:
                 pass
             self.score += self.explorer.del_constant * len(mutation.events)
-            self.sig = self.sig + "-"
+            self.sig = self.sig + "-" * len(mutation.events)
         elif isinstance(mutation, mutator.Nop):
             pass
         elif isinstance(mutation, mutator.SetFlagsInit):
@@ -171,7 +180,7 @@ class Execution:
         def human_log_file(path):
             return "<(profiler %s | sed 's/serial = [0-9]\+, //g' 2> /dev/null)" % path
 
-        cmd = "colordiff -U1 %s %s | tail -n +4" % \
+        cmd = "colordiff -U3 %s %s | tail -n +4" % \
                   (human_log_file(self.explorer.root.logfile_path),
                           human_log_file(self.logfile_path))
         subprocess.call(['/bin/bash', '-c', cmd])
@@ -182,8 +191,6 @@ class Execution:
     def deadlocked(self):
         self.state = FAILED
         self.info("\033[1;31mDeadlocked\033[m")
-        if is_verbose():
-            self.print_diff()
 
     def signature(self):
         return self.sig_list + [self.sig]
@@ -191,14 +198,23 @@ class Execution:
     def update_progress(self, pid, index):
         old_score = self.score
 
-        segment_length = index - self.mutation_indices.get(pid, 0)
+        base = self.mutation_indices.get(pid, 0)
+
+        if self._running_session is None:
+            print("Using disk indices")
+        else:
+            print("Using fly indices")
+
+        #print("Awarded for: %s" % map(lambda e: str(e), list(self.running_session.processes[pid].events)[base:index]))
+
+        segment_length = index - base
 
         if segment_length > 0:
             self.sig_list.append(self.sig)
             self.sig = ""
 
         self.info("pid %d mutation_indices: %d, diverged on: %d" %
-                (pid, self.mutation_indices.get(pid, 0), index))
+                (pid, base, index))
 
         if self.explorer.linear:
             self.score += segment_length * self.explorer.match_constant
@@ -207,7 +223,6 @@ class Execution:
 
         self.info("adjusting score %d -> %d" %(old_score, self.score))
 
-        assert old_score <= self.score
 
     def get_user_pattern(self):
         pattern = self.explorer.pattern
@@ -317,12 +332,12 @@ class Execution:
             if diverge_event.fatal:
                 self.explorer.add_execution(self, Execution(self,
                     mutator.Replace({event: replace_event}),
-                    mutation_index=event.index, mutation_pid=pid))
+                    mutation_index=event.index, fly_offset_delta=0, mutation_pid=pid))
             else:
                 self.explorer.add_execution(self, Execution(self,
                     mutator.Replace({event: replace_event}),
                     state=RUNNING, running_session=self.running_session,
-                    mutation_index=event.index, mutation_pid=pid))
+                    mutation_index=event.index, fly_offset_delta=0, mutation_pid=pid))
 
         if (user_pattern is None or user_pattern == '+') and add_event:
             if add_location is None:
@@ -332,12 +347,12 @@ class Execution:
             if diverge_event.fatal:
                 self.explorer.add_execution(self, Execution(self,
                     mutator.InsertEvent(add_location, add_event),
-                    mutation_index=event.index+1, mutation_pid=pid))
+                    mutation_index=event.index+1, fly_offset_delta=0, mutation_pid=pid))
             elif replace_event is None:
                 self.explorer.add_execution(self, Execution(self,
                     mutator.InsertEvent(add_location, add_event),
                     state=RUNNING, running_session=self.running_session,
-                    mutation_index=event.index, mutation_pid=pid))
+                    mutation_index=event.index, fly_offset_delta=1, mutation_pid=pid))
 
         if user_pattern is None or user_pattern == '-':
             events = []
@@ -353,15 +368,11 @@ class Execution:
 
             self.explorer.add_execution(self, Execution(self,
                 mutator.DeleteEvent(events),
-                mutation_index=event.index, mutation_pid=pid))
-
-        if is_verbose() and diverge_event.fatal:
-            self.print_diff()
+                mutation_index=event.index, fly_offset_delta=0, mutation_pid=pid))
 
     def success(self):
         self.state = SUCCESS
         self.info("\033[1;32mSuccess\033[m")
-        self.print_diff()
 
 class RootExecution(Execution):
     def __init__(self, explorer, on_the_fly, var_io):
@@ -372,6 +383,7 @@ class RootExecution(Execution):
         parent.score = 0
         parent.explorer = explorer
         parent.mutated_session = load_session(explorer.logfile_path)
+        parent.fly_offsets = dict()
         parent.mutation_indices = dict()
         parent.sig = ""
         parent.sig_list = []
@@ -406,6 +418,7 @@ class Replayer:
     def run(self, exe):
         if is_verbose():
             self.execution.info("Running %s (%d)" % (self.execution, self.execution.score))
+            self.execution.print_diff()
         def _on_mutation(diverge_event):
             if self.execution is None:
                 return
