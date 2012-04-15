@@ -214,11 +214,13 @@ class Execution:
 
     def diverged(self, diverge_event):
         if diverge_event is None:
-            self.info("\033[1;31m FATAL ERROR -- FIXME\033[m")
+            self.info("\033[1;31m FATAL ERROR -- FIXME -- HAVE A NICE DAY\033[m")
         pid = diverge_event.pid
         num = diverge_event.num_ev_consumed - 1
         if not diverge_event.fatal:
             if isinstance(diverge_event, scribe.EventDivergeSyscall):
+                num += 1
+            if isinstance(diverge_event, scribe.EventDivergeMemOwned):
                 num += 1
 
         self.update_progress(pid, num)
@@ -230,8 +232,7 @@ class Execution:
             syscall = event.syscall
         except AttributeError:
             # no syscall found
-            if not diverge_event.fatal:
-                self.info("\033[1;31m FATAL ERROR -- FIXME\033[m")
+            pass
 
         if diverge_event.fatal:
             diverge_str = "diverged (%s)" % (diverge_event)
