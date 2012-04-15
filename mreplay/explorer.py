@@ -81,8 +81,7 @@ class Execution:
 
         if self._running_session is None:
             for (pid, offset) in self.fly_offsets.items():
-                if offset > 0:
-                    self.mutation_indices[pid] += offset - 1
+                self.mutation_indices[pid] += offset
             self.fly_offsets = {}
 
         self.id = self.explorer.get_new_id()
@@ -373,6 +372,8 @@ class Execution:
     def success(self):
         self.state = SUCCESS
         self.info("\033[1;32mSuccess\033[m")
+        if is_verbose():
+            self.print_diff()
 
 class RootExecution(Execution):
     def __init__(self, explorer, on_the_fly, var_io):
