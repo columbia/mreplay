@@ -78,9 +78,11 @@ class Execution:
         if isinstance(mutation, mutator.InsertEvent):
             self.score += self.explorer.add_constant
         elif isinstance(mutation, mutator.DeleteEvent):
-            if len(mutation.events) < self.explorer.max_delete:
-                self.score += 15
-
+            try:
+                if mutation.events[-1].syscall.nr in unistd.SYS_exit:
+                    self.score -= 10000
+            except AttributeError:
+                pass
             self.score += self.explorer.del_constant * len(mutation.events)
         elif isinstance(mutation, mutator.Nop):
             pass
