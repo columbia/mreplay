@@ -60,7 +60,7 @@ def load_session(logfile_path):
 
 class Execution:
     def __init__(self, parent, mutation, state=TODO,
-                 running_session=None, mutation_index=0):
+                 running_session=None, mutation_index=0, mutation_pid=0):
         self.explorer = parent.explorer
         self.parent = parent
         self.score = parent.score
@@ -72,11 +72,18 @@ class Execution:
         self._session = None
         self._running_session = running_session
         self.name = None
-        self.mutation_index = mutation_index
+
+        self.mutation_indices = dict(parent.mutation_indices)
+        self.mutation_indices[mutation_pid] = mutation_index
+
         self.id = self.explorer.get_new_id()
+
+        self.sig_list = list(parent.sig_list)
+        self.sig = parent.sig
 
         if isinstance(mutation, mutator.InsertEvent):
             self.score += self.explorer.add_constant
+            self.sig = self.sig + "+"
         elif isinstance(mutation, mutator.DeleteEvent):
             try:
                 if mutation.events[-1].syscall.nr in unistd.SYS_exit:
@@ -84,12 +91,13 @@ class Execution:
             except AttributeError:
                 pass
             self.score += self.explorer.del_constant * len(mutation.events)
+            self.sig = self.sig + "-"
         elif isinstance(mutation, mutator.Nop):
             pass
         elif isinstance(mutation, mutator.SetFlagsInit):
             pass
         elif isinstance(mutation, mutator.Replace):
-            pass
+            self.sig = self.sig + "+-"
         else:
             raise RuntimeError("Mutator type: %s" % mutation.__class__)
 
@@ -97,6 +105,11 @@ class Execution:
         if self.name is None:
             self.name = "%s_%s" % (self.parent, self.mutation)
         return self.name
+
+    def __eq__(self, other):
+        a = map(lambda s: sorted(s), self.signature())
+        b = map(lambda s: sorted(s), other.signature())
+        return a == b
 
     @property
     def logfile_path(self):
@@ -168,11 +181,21 @@ class Execution:
         if is_verbose():
             self.print_diff()
 
-    def adjust_score(self, index):
+    def signature(self):
+        return self.sig_list + [self.sig]
+
+    def update_progress(self, pid, index):
         old_score = self.score
-        segment_length = index - self.mutation_index
-        self.info("mutation_index: %d, diverged on: %d" %
-                (self.mutation_index, index))
+
+        segment_length = index - self.mutation_indices.get(pid, 0)
+
+        if segment_length > 0:
+            self.sig_list.append(self.sig)
+            self.sig = ""
+
+        self.info("pid %d mutation_indices: %d, diverged on: %d" %
+                (pid, self.mutation_indices.get(pid, 0), index))
+
         if self.explorer.linear:
             self.score += segment_length * self.explorer.match_constant
         else:
@@ -198,7 +221,7 @@ class Execution:
             if isinstance(diverge_event, scribe.EventDivergeSyscall):
                 num += 1
 
-        self.adjust_score(num)
+        self.update_progress(pid, num)
         self.state = FAILED
         event = self.running_session.processes[pid].events[num]
 
@@ -285,12 +308,12 @@ class Execution:
             if diverge_event.fatal:
                 self.explorer.add_execution(self, Execution(self,
                     mutator.Replace({event: replace_event}),
-                    mutation_index=event.index))
+                    mutation_index=event.index, mutation_pid=pid))
             else:
                 self.explorer.add_execution(self, Execution(self,
                     mutator.Replace({event: replace_event}),
                     state=RUNNING, running_session=self.running_session,
-                    mutation_index=event.index))
+                    mutation_index=event.index, mutation_pid=pid))
 
         if (user_pattern is None or user_pattern == '+') and add_event:
             if add_location is None:
@@ -300,12 +323,12 @@ class Execution:
             if diverge_event.fatal:
                 self.explorer.add_execution(self, Execution(self,
                     mutator.InsertEvent(add_location, add_event),
-                    mutation_index=event.index+1))
+                    mutation_index=event.index+1, mutation_pid=pid))
             elif replace_event is None:
                 self.explorer.add_execution(self, Execution(self,
                     mutator.InsertEvent(add_location, add_event),
                     state=RUNNING, running_session=self.running_session,
-                    mutation_index=event.index))
+                    mutation_index=event.index, mutation_pid=pid))
 
         if user_pattern is None or user_pattern == '-':
             events = []
@@ -321,7 +344,7 @@ class Execution:
 
             self.explorer.add_execution(self, Execution(self,
                 mutator.DeleteEvent(events),
-                mutation_index=event.index+1))
+                mutation_index=event.index+1, mutation_pid=pid))
 
         if is_verbose() and diverge_event.fatal:
             self.print_diff()
@@ -329,7 +352,6 @@ class Execution:
     def success(self):
         self.state = SUCCESS
         self.info("\033[1;32mSuccess\033[m")
-        self.adjust_score(len(self.running_session.events))
         self.print_diff()
 
 class RootExecution(Execution):
@@ -341,6 +363,9 @@ class RootExecution(Execution):
         parent.score = 0
         parent.explorer = explorer
         parent.mutated_session = load_session(explorer.logfile_path)
+        parent.mutation_indices = dict()
+        parent.sig = ""
+        parent.sig_list = []
 
         neg_flags = 0
         if on_the_fly:
@@ -475,12 +500,16 @@ class Explorer:
 
     def add_execution(self, parent, child):
         if child.state == TODO:
-            # We need to check if it's not a duplicate right here
-            pass
+            if child in self.executions:
+                parent.info("NOT adding [%d], score: %d (%d) %s" %
+                        (child.id, child.score, child.score - parent.score,
+                        child.signature()))
+                return
 
         if parent is not None:
-            parent.info("Adding [%d], score: %d (%d)" %
-                    (child.id, child.score, child.score - parent.score))
+            parent.info("Adding [%d], score: %d (%d) %s" %
+                    (child.id, child.score, child.score - parent.score,
+                    child.signature()))
 
         self.executions.append(child)
 
