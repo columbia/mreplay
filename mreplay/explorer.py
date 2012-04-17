@@ -232,7 +232,7 @@ class Execution:
             return user_pattern
         return None
 
-    def diverged(self, diverge_event):
+    def diverged(self, diverge_event, mutations):
         if diverge_event is None:
             self.info("\033[1;31m FATAL ERROR -- FIXME -- HAVE A NICE DAY\033[m")
         pid = diverge_event.pid
@@ -420,10 +420,10 @@ class Replayer:
         if is_verbose():
             self.execution.info("Running %s (%d)" % (self.execution, self.execution.score))
             self.execution.print_diff()
-        def _on_mutation(diverge_event):
+        def _on_mutation(diverge_event, mutations):
             if self.execution is None:
                 return
-            self.execution.diverged(diverge_event)
+            self.execution.diverged(diverge_event, mutations)
             old_execution = self.execution
             try:
                 self.execution = [e for e in self.explorer.executions
@@ -444,8 +444,8 @@ class Replayer:
                 self.start = datetime.datetime.now()
                 self.last = self.start
 
-            def on_mutation(self, event):
-                _on_mutation(event)
+            def on_mutation(self, diverge_event, mutations):
+                _on_mutation(diverge_event, mutations)
 
             def on_bookmark(self, id, npr):
                 now = datetime.datetime.now()
@@ -481,7 +481,7 @@ class Replayer:
                 self.execution.deadlocked()
         except scribe.DivergeError as diverge:
             if self.execution is not None:
-                self.execution.diverged(diverge.event)
+                self.execution.diverged(diverge.event, [])
         except scribe.ContextClosedError:
             pass
         finally:
