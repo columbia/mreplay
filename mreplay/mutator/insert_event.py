@@ -2,9 +2,12 @@ from mutator import Mutator
 from location_matcher import LocationMatcher
 
 class InsertEvent(Mutator):
-    def __init__(self, where, event):
+    def __init__(self, where, events):
+        if not isinstance(events, list):
+            events = [events]
+        events = list(events)
         self.where = where
-        self.event = event
+        self.events = events
         self.matcher = LocationMatcher(where)
 
     def __str__(self):
@@ -14,5 +17,6 @@ class InsertEvent(Mutator):
         for event in events:
             match = self.matcher.match(event)
             if match is not None:
-                yield self.event
+                for e in self.events:
+                    yield e
             yield event
