@@ -233,6 +233,7 @@ class Execution:
         return None
 
     def diverged(self, diverge_event, mutations):
+        mutations = list(mutations)
         if diverge_event is None:
             self.info("\033[1;31m FATAL ERROR -- FIXME -- HAVE A NICE DAY\033[m")
         pid = diverge_event.pid
@@ -289,8 +290,11 @@ class Execution:
             self.info("%s deleting internal event" % diverge_str)
 
         elif isinstance(diverge_event, scribe.EventDivergeSyscall):
-            new_syscall = scribe.EventSyscallExtra(nr=diverge_event.nr, ret=0,
-                           args=diverge_event.args[:struct.calcsize('L')*diverge_event.num_args])
+            if len(mutations) > 0:
+                new_syscall = mutations[0]
+            else:
+                new_syscall = scribe.EventSyscallExtra(nr=diverge_event.nr, ret=0,
+                               args=diverge_event.args[:struct.calcsize('L')*diverge_event.num_args])
             add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
                                              new_syscall.encode())
             self.info("%s syscall: %s" % (diverge_str, add_event))
@@ -342,16 +346,19 @@ class Execution:
             if add_location is None:
                 add_location = Location(event, 'before')
 
-            add_event = Event(add_event, event.proc)
+            add_events = [Event(add_event, event.proc)]
             if diverge_event.fatal:
+                add_events.append(Event(scribe.EventNop(scribe.EventSyscallEnd().encode()), event.proc))
                 self.explorer.add_execution(self, Execution(self,
-                    mutator.InsertEvent(add_location, add_event),
-                    mutation_index=event.index+1, fly_offset_delta=0, mutation_pid=pid))
+                    mutator.InsertEvent(add_location, add_events),
+                    mutation_index=event.index+2, fly_offset_delta=0, mutation_pid=pid))
             elif replace_event is None:
+                add_events.extend([Event(scribe.EventNop(e.encode()), event.proc)
+                                    for e in mutations[1:]])
                 self.explorer.add_execution(self, Execution(self,
-                    mutator.InsertEvent(add_location, add_event),
+                    mutator.InsertEvent(add_location, add_events),
                     state=RUNNING, running_session=self.running_session,
-                    mutation_index=event.index, fly_offset_delta=1, mutation_pid=pid))
+                    mutation_index=event.index, fly_offset_delta=len(add_events), mutation_pid=pid))
 
         if user_pattern is None or user_pattern == '-':
             events = []
