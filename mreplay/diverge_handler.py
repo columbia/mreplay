@@ -199,11 +199,6 @@ class DivergeHandler:
         self.delete_event(self.take_until_match(self.syscall, new_syscall))
         self.status = "ret value mismatch"
 
-    # open() = xx <---- syscall (start)
-    #   data string "/var/log" <---- culprit
-
-    # new_syscall = "open() = 0" (end: takewhile 
-
     def handle_data_content(self):
         new_syscall = None
         if self.syscall is not None:
@@ -216,15 +211,14 @@ class DivergeHandler:
             add_state = self.get_add_state()
 
             self.add_event(self.syscall, scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL, new_syscall.encode()), fly_state=add_state)
+            # not replacing inline data events, it's messed up with resource
+            # and all.
             #self.replace_event(self.culprit, scribe.EventData(data=self.diverge_event.data[:self.diverge_event.size]))
 
         start = self.syscall or self.culprit
         end = new_syscall or self.culprit
         self.delete_event(self.take_until_match(start, end))
-        #self.delete_event([self.culprit])
-
         self.status = "diverge data content"
-
 
     def handle_default(self):
         new_syscall = None
@@ -232,8 +226,6 @@ class DivergeHandler:
             new_syscall = scribe.EventSyscallExtra(nr=self.syscall.nr, ret=0, args = self.syscall.args)
             self.mutations = [None, Event(scribe.EventSyscallEnd(), self.proc)]
             self.add_event(self.syscall, scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL, new_syscall.encode()))
-
-
 
         start = self.syscall or self.culprit
         end = new_syscall or self.culprit

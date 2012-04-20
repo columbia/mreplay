@@ -40,7 +40,7 @@ def main():
             help="Del constant")
 
     parser.add_option("-m", "--match-constant",
-            type="int", dest="match_constant", default=1,
+            type="int", dest="match_constant", default=3,
             help="Match constant")
 
     parser.add_option("-D", "--max-delete",
