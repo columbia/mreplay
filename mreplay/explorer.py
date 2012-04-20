@@ -9,46 +9,11 @@ import errno
 import subprocess
 import unistd
 import execute
-import itertools
-import struct
-from session import Session
-from location import Location
-from mreplay.session import Event
+from session import Session, Event
 import datetime
 import math
 
 MREPLAY_DIR = ".mreplay"
-
-TODO = 0
-SUCCESS = 1
-FAILED = 2
-RUNNING = 3
-
-def head(seq, n=1):
-    iterator = iter(seq)
-    for i in xrange(n):
-        yield iterator.next()
-
-
-def sys_match(s1, s2):
-    if s1.nr != s2.nr:
-        return False
-
-    def get_args(s):
-        return struct.unpack("L" * (len(s.args)/4), s.args)
-
-    def is_addr(val):
-        return (val & 0xff800000) != 0
-
-    for (a1, a2) in zip(get_args(s1), get_args(s2)):
-        if a1 == a2:
-            continue
-        if is_addr(a1) and is_addr(a2):
-            continue
-        return False
-
-    return True
-
 
 def is_verbose():
     return logging.getLogger().getEffectiveLevel() == logging.DEBUG
@@ -58,9 +23,16 @@ def load_session(logfile_path):
         logfile_map = mmap.mmap(logfile.fileno(), 0, prot=mmap.PROT_READ)
         return Session(scribe.EventsFromBuffer(logfile_map))
 
+class ExecutionStates:
+    TODO = 0
+    SUCCESS = 1
+    FAILED = 2
+    RUNNING = 3
+
 class Execution:
-    def __init__(self, parent, mutation, state=TODO,
+    def __init__(self, parent, mutation, state=ExecutionStates.TODO,
                  running_session=None, mutation_index=0, fly_offset_delta=0, mutation_pid=0):
+
         self.explorer = parent.explorer
         self.parent = parent
         self.score = parent.score
@@ -89,16 +61,31 @@ class Execution:
         self.sig_list = list(parent.sig_list)
         self.sig = parent.sig
 
+
+        def penalize_sacred_events(events):
+            for e in events:
+                if e.is_a(scribe.EventSetFlags) or e.is_a(scribe.EventNop):
+                    if len(e.extra) > 0:
+                        e = Event(scribe.Event.from_bytes(e.extra), e.proc)
+
+                syscall = None
+                if e.is_a(scribe.EventSyscallExtra):
+                    syscall = e
+                elif e.has_syscall():
+                    syscall = e.syscall
+                else:
+                    continue
+                if syscall.nr in unistd.SYS_exit:
+                    self.score -= 100000000000000000000000000
+
         if isinstance(mutation, mutator.InsertEvent):
+            penalize_sacred_events(mutation.events)
             self.score += self.explorer.add_constant
             self.sig = self.sig + "+"
         elif isinstance(mutation, mutator.DeleteEvent):
-            try:
-                if mutation.events[-1].syscall.nr in unistd.SYS_exit:
-                    self.score -= 10000
-            except AttributeError:
-                pass
+            penalize_sacred_events(mutation.events)
             self.score += self.explorer.del_constant * len(mutation.events)
+            self.score += self.explorer.match_constant
             self.sig = self.sig + "-" * len(mutation.events)
         elif isinstance(mutation, mutator.Nop):
             pass
@@ -188,7 +175,7 @@ class Execution:
         logging.info("[%d] %s" % (self.id, msg))
 
     def deadlocked(self):
-        self.state = FAILED
+        self.state = ExecutionStates.FAILED
         self.info("\033[1;31mDeadlocked\033[m")
 
     def signature(self):
@@ -222,7 +209,6 @@ class Execution:
 
         self.info("adjusting score %d -> %d" %(old_score, self.score))
 
-
     def get_user_pattern(self):
         pattern = self.explorer.pattern
         if pattern is not None and self.depth < len(pattern):
@@ -233,151 +219,11 @@ class Execution:
         return None
 
     def diverged(self, diverge_event, mutations):
-        mutations = list(mutations)
-        if diverge_event is None:
-            self.info("\033[1;31m FATAL ERROR -- FIXME -- HAVE A NICE DAY\033[m")
-        pid = diverge_event.pid
-        num = diverge_event.num_ev_consumed - 1
-        if not diverge_event.fatal:
-            if isinstance(diverge_event, scribe.EventDivergeSyscall):
-                num += 1
-            if isinstance(diverge_event, scribe.EventDivergeMemOwned):
-                num += 1
-
-        self.update_progress(pid, num)
-        self.state = FAILED
-        event = self.running_session.processes[pid].events[num]
-
-        assert event.index == num
-
-        syscall = None
-        try:
-            syscall = event.syscall
-        except AttributeError:
-            # no syscall found
-            pass
-
-        if diverge_event.fatal:
-            diverge_str = "diverged (%s)" % (diverge_event)
-        else:
-            diverge_str = "mutating (%s)" % (diverge_event)
-
-        diverge_str = "pid=%d \033[1;33m%s at %s\033[m" % (pid, diverge_str, event)
-
-
-        if syscall is not None and syscall != event:
-            diverge_str = "%s in %s" % (diverge_str, syscall)
-
-        new_syscall = None
-        add_location = None
-        add_event = None
-        replace_event = None
-
-        if isinstance(diverge_event, scribe.EventDivergeMemOwned):
-            address = diverge_event.address
-            if diverge_event.write_access:
-                add_event = scribe.EventMemOwnedWriteExtra(serial=0, address=address)
-            else:
-                add_event = scribe.EventMemOwnedReadExtra(serial=0, address=address)
-            self.info("%s memory access" % diverge_str)
-
-        elif isinstance(diverge_event, scribe.EventDivergeEventType) and \
-                diverge_event.type == scribe.EventRdtsc.native_type:
-            add_event = scribe.EventRdtsc()
-            self.info("%s RDTSC" % diverge_str)
-
-        elif isinstance(diverge_event, scribe.EventDivergeEventType):
-            self.info("%s deleting internal event" % diverge_str)
-
-        elif isinstance(diverge_event, scribe.EventDivergeSyscall):
-            if len(mutations) > 0:
-                new_syscall = mutations[0]
-            else:
-                new_syscall = scribe.EventSyscallExtra(nr=diverge_event.nr, ret=0,
-                               args=diverge_event.args[:struct.calcsize('L')*diverge_event.num_args])
-            add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
-                                             new_syscall.encode())
-            self.info("%s syscall: %s" % (diverge_str, add_event))
-
-            # Because of how signals are handled, we need to put the ignore
-            # syscall event before the signals...
-            if syscall is not None:
-                try:
-                    first_signal = itertools.takewhile(lambda e: e.is_a(scribe.EventSignal),
-                                                syscall.proc.events.before(syscall)).next()
-                    add_location = Location(first_signal, 'before')
-                except StopIteration:
-                    # no signal found
-                    pass
-
-        elif isinstance(diverge_event, scribe.EventDivergeSyscallRet):
-            event = syscall
-            new_syscall = scribe.EventSyscallExtra(nr=syscall.nr, ret=0, args=syscall.args)
-            add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
-                                             new_syscall.encode())
-            replace_event = scribe.EventSyscallExtra(nr=syscall.nr, ret=diverge_event.ret,
-                                                     args=syscall.args)
-            self.info("%s ret value mismatch" % diverge_str)
-
-        else:
-            if syscall is not None:
-                event = syscall
-                new_syscall = scribe.EventSyscallExtra(nr=syscall.nr, ret=0, args = syscall.args)
-                add_event = scribe.EventSetFlags(0, scribe.SCRIBE_UNTIL_NEXT_SYSCALL,
-                                                 new_syscall.encode())
-            self.info("%s unhandled case" % (diverge_str))
-
-
-        user_pattern = self.get_user_pattern()
-
-        if (user_pattern is None or user_pattern == 'r') and replace_event:
-            replace_event = Event(replace_event, event.proc)
-            if diverge_event.fatal:
-                self.explorer.add_execution(self, Execution(self,
-                    mutator.Replace({event: replace_event}),
-                    mutation_index=event.index, fly_offset_delta=0, mutation_pid=pid))
-            else:
-                self.explorer.add_execution(self, Execution(self,
-                    mutator.Replace({event: replace_event}),
-                    state=RUNNING, running_session=self.running_session,
-                    mutation_index=event.index, fly_offset_delta=0, mutation_pid=pid))
-
-        if (user_pattern is None or user_pattern == '+') and add_event:
-            if add_location is None:
-                add_location = Location(event, 'before')
-
-            add_events = [Event(add_event, event.proc)]
-            if diverge_event.fatal:
-                add_events.append(Event(scribe.EventNop(scribe.EventSyscallEnd().encode()), event.proc))
-                self.explorer.add_execution(self, Execution(self,
-                    mutator.InsertEvent(add_location, add_events),
-                    mutation_index=event.index+2, fly_offset_delta=0, mutation_pid=pid))
-            elif replace_event is None:
-                add_events.extend([Event(scribe.EventNop(e.encode()), event.proc)
-                                    for e in mutations[1:]])
-                self.explorer.add_execution(self, Execution(self,
-                    mutator.InsertEvent(add_location, add_events),
-                    state=RUNNING, running_session=self.running_session,
-                    mutation_index=event.index, fly_offset_delta=len(add_events), mutation_pid=pid))
-
-        if user_pattern is None or user_pattern == '-':
-            events = []
-            if new_syscall is not None:
-                try:
-                    events = list(itertools.takewhile(
-                            lambda e: not sys_match(e, new_syscall),
-                            head(event.proc.syscalls.after(event.syscall),
-                                self.explorer.max_delete)))
-                except AttributeError:
-                    pass
-            events.insert(0, event)
-
-            self.explorer.add_execution(self, Execution(self,
-                mutator.DeleteEvent(events),
-                mutation_index=event.index, fly_offset_delta=0, mutation_pid=pid))
+        from diverge_handler import DivergeHandler
+        DivergeHandler(self, diverge_event, mutations).handle()
 
     def success(self):
-        self.state = SUCCESS
+        self.state = ExecutionStates.SUCCESS
         self.info("\033[1;32mSuccess\033[m")
         if is_verbose():
             self.print_diff()
@@ -427,14 +273,16 @@ class Replayer:
         if is_verbose():
             self.execution.info("Running %s (%d)" % (self.execution, self.execution.score))
             self.execution.print_diff()
+
         def _on_mutation(diverge_event, mutations):
             if self.execution is None:
                 return
+
             self.execution.diverged(diverge_event, mutations)
             old_execution = self.execution
             try:
                 self.execution = [e for e in self.explorer.executions
-                                  if e.state == RUNNING][0]
+                                  if e.state == ExecutionStates.RUNNING][0]
             except IndexError:
                 # user pattern aborted the replay, must abort.
                 self.execution = None
@@ -503,6 +351,7 @@ class Explorer:
                  num_success_to_stop, isolate, linear, pattern,
                  add_constant, del_constant, match_constant,
                  max_delete):
+
         self.add_constant = add_constant
         self.del_constant = del_constant
         self.match_constant = match_constant
@@ -547,12 +396,13 @@ class Explorer:
     def num_state(self, state):
         return len(filter(lambda e: e.state == state, self.executions))
 
-    def print_status(self):
+    def print_status(self, num_run):
         logging.info("-" * 80)
-        logging.info("Success: %d, Failed: %d, Todo: %d" % \
-                     (self.num_state(SUCCESS),
-                      self.num_state(FAILED),
-                      self.num_state(TODO)))
+        logging.info("Replays: %d, Success: %d, Failed: %d, Todo: %d" % \
+                     (num_run,
+                      self.num_state(ExecutionStates.SUCCESS),
+                      self.num_state(ExecutionStates.FAILED),
+                      self.num_state(ExecutionStates.TODO)))
         logging.info("-" * 80)
 
 
@@ -570,19 +420,19 @@ class Explorer:
 
         num_run = 0
         while not stop_requested[0]:
-            if self.num_state(SUCCESS) >= self.num_success_to_stop:
+            if self.num_state(ExecutionStates.SUCCESS) >= self.num_success_to_stop:
                 break
 
-            todos = filter(lambda e: e.state == TODO, self.executions)
+            todos = filter(lambda e: e.state == ExecutionStates.TODO, self.executions)
             if len(todos) == 0:
                 break
-            self.print_status()
+            self.print_status(num_run)
             execution = max(todos, key=lambda e: e.score)
 
             num_run += 1
             with execute.open(jailed=self.isolate) as exe:
                 execution.num_run = num_run
-                execution.num_success = len(list([e for e in self.executions if e.state == SUCCESS]))
+                execution.num_success = len(list([e for e in self.executions if e.state == ExecutionStates.SUCCESS]))
 
                 replayer[0] = Replayer(execution)
                 replayer[0].run(exe)
@@ -593,11 +443,11 @@ class Explorer:
 
         if self.num_success_to_stop != 1:
             print("")
-            self.print_status()
+            self.print_status(num_run)
             print("Summary of good executions:")
             self.executions.sort(key=lambda e: e.score)
             for execution in self.executions:
-                if execution.state == SUCCESS:
+                if execution.state == ExecutionStates.SUCCESS:
                     print("%d %d %d %s:" % (execution.score, execution.num_run, execution.num_success+1, execution))
                     execution.print_diff()
                     print("")

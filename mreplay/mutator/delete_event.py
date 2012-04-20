@@ -7,10 +7,8 @@ class DeleteEvent(Mutator):
     def __init__(self, events):
         if not isinstance(events, list):
             events = [events]
-        events = list(events)
-
         self.events = list(events)
-        self.matcher = LocationMatcher(map(lambda e: Location(e, 'before'), events))
+        self.matcher = LocationMatcher(map(lambda e: Location(e, 'before'), self.events))
 
     def __str__(self):
         return "d-%d:%s" % (self.events[0].proc.pid,

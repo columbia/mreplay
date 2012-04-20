@@ -22,6 +22,14 @@ class Event(object):
         except StopIteration:
             return None
 
+    def next_syscall(self):
+        if self.proc is None:
+            return None
+        try:
+            return self.proc.syscalls.after(self).next()
+        except StopIteration:
+            return None
+
     @property
     def children(self):
         # The children list is generated on the fly.
@@ -40,6 +48,13 @@ class Event(object):
     @syscall.setter
     def syscall(self, value):
         self._syscall = value
+
+    def has_syscall(self):
+        try:
+            self._syscall
+            return True
+        except AttributeError:
+            return False
 
     @property
     def syscall_index(self):
