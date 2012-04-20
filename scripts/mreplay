@@ -47,6 +47,10 @@ def main():
             type="int", dest="max_delete", default=100,
             help="Max events to delete at once")
 
+    parser.add_option("-F", "--max-on-the-fly",
+            type="int", dest="max_otf", default=10000,
+            help="Max events to add on the fly")
+
     parser.add_option("-p", "--pattern",
             dest="pattern", help="Replay pattern, *:replace, +: add, -:remove, .:default")
 
@@ -62,7 +66,7 @@ def main():
     Explorer(logfile_path, options.on_the_fly, options.var_io,
              options.num_success_to_stop, options.isolate, options.linear,
              options.pattern, options.add_constant, options.del_constant,
-             options.match_constant, options.max_delete).run()
+             options.match_constant, options.max_delete, options.max_otf).run()
 
 if __name__ == '__main__':
     main()

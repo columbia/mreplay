@@ -38,6 +38,11 @@ class Execution:
         self.score = parent.score
         self.depth = parent.depth + 1
 
+        if running_session is None:
+            self.depth_otf = 0
+        else:
+            self.depth_otf = parent.depth_otf + 1
+
         self.mutation = mutation
         self.children = []
         self.state = state
@@ -234,6 +239,7 @@ class RootExecution(Execution):
             pass
         parent = DummyParent()
         parent.depth = -1
+        parent.depth_otf = 0
         parent.score = 0
         parent.explorer = explorer
         parent.mutated_session = load_session(explorer.logfile_path)
@@ -350,12 +356,13 @@ class Explorer:
     def __init__(self, logfile_path, on_the_fly, var_io,
                  num_success_to_stop, isolate, linear, pattern,
                  add_constant, del_constant, match_constant,
-                 max_delete):
+                 max_delete, max_otf):
 
         self.add_constant = add_constant
         self.del_constant = del_constant
         self.match_constant = match_constant
         self.max_delete = max_delete
+        self.max_otf = max_otf
         self.logfile_path = logfile_path
         self.num_success_to_stop = num_success_to_stop
         self.isolate = isolate

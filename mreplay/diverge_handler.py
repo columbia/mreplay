@@ -85,7 +85,8 @@ class DivergeHandler:
             add_location = Location(event, 'before')
 
         add_events = [Event(add_event, event.proc)]
-        if self.diverge_event.fatal or fly_state == ExecutionStates.TODO:
+        if self.diverge_event.fatal or fly_state == ExecutionStates.TODO or \
+                self.execution.depth_otf > self.explorer.max_otf:
             add_events.append(Event(scribe.EventNop(scribe.EventSyscallEnd().encode()), event.proc))
             self.explorer.add_execution(self.execution,
                 Execution(self.execution,
@@ -109,7 +110,7 @@ class DivergeHandler:
             return
 
         new = Event(new, self.proc)
-        if self.diverge_event.fatal:
+        if self.diverge_event.fatal or self.execution.depth_otf > self.explorer.max_otf:
             print("Replacing: (%s) with (%s)" % (str(original), str(new)))
             self.explorer.add_execution(self.execution,
                     Execution(self.execution,
