@@ -178,11 +178,6 @@ class Execution:
 
         base = self.mutation_indices.get(pid, 0)
 
-        if self._running_session is None:
-            print("Using disk indices")
-        else:
-            print("Using fly indices")
-
         #print("Awarded for: %s" % map(lambda e: str(e), list(self.running_session.processes[pid].events)[base:index]))
 
         segment_length = index - base

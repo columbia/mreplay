@@ -129,7 +129,6 @@ class DivergeHandler:
             return
 
         if events is None:
-            print ("NOT ADDING")
             return
 
         self.explorer.add_execution(self.execution,
