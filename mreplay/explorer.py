@@ -80,7 +80,8 @@ class Execution:
                     syscall = e.syscall
                 else:
                     continue
-                if syscall.nr in unistd.SYS_exit:
+                if syscall.nr in unistd.SYS_exit or \
+                   syscall.nr in unistd.SYS_fork:
                     self.score -= 100000000000000000000000000
 
         if isinstance(mutation, mutator.InsertEvent):
