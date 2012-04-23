@@ -63,6 +63,9 @@ def main():
 
     configure_logging((logging.INFO, logging.DEBUG)[options.verbose])
 
+    import sys
+    sys.setrecursionlimit(100000)
+
     Explorer(logfile_path, options.on_the_fly, options.var_io,
              options.num_success_to_stop, options.isolate, options.linear,
              options.pattern, options.add_constant, options.del_constant,
