@@ -87,7 +87,7 @@ class Execution:
         if isinstance(mutation, mutator.InsertEvent):
             penalize_sacred_events(mutation.events)
             self.score += self.explorer.add_constant
-            self.sig = self.sig + "+"
+            self.sig = self.sig + "+" * len(mutation.events)
         elif isinstance(mutation, mutator.DeleteEvent):
             penalize_sacred_events(mutation.events)
             self.score += self.explorer.del_constant * len(mutation.events)
