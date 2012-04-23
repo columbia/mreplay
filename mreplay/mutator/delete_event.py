@@ -22,7 +22,7 @@ class DeleteEvent(Mutator):
             if match is not None or syscall_depth > 0 or res_depth > 0:
                 if e.is_a(scribe.EventSyscallExtra):
                     syscall_depth += 1
-                elif e.is_a(scribe.EventResourceLock):
+                elif e.is_a(scribe.EventResourceLockExtra):
                     res_depth += 1
                 elif e.is_a(scribe.EventSyscallEnd):
                     syscall_depth -= 1
