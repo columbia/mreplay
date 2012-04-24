@@ -4,6 +4,7 @@ from mreplay.session import Event
 import scribe
 import struct
 import mutator
+import unistd
 from mreplay.explorer import Execution, ExecutionStates
 
 # TODO: move to utils?
@@ -266,6 +267,8 @@ class DivergeHandler:
                 return None
 
         if end is not None and start.has_syscall():
+            if end.nr in unistd.SYS_exit:
+                return [start] + list(start.proc.events.after(start.syscall))[:-1]
             events = list(itertools.takewhile(
                     lambda e: not self.sys_match(e, end),
                     head(start.proc.syscalls.after(start.syscall),
