@@ -154,8 +154,25 @@ class DivergeHandler:
         self.status = "RDTSC"
 
     def handle_type(self):
-        self.delete_event([self.culprit])
-        self.status = "deleting internal event"
+        if self.culprit.has_syscall() and self.culprit.syscall != self.culprit:
+            self.delete_event([self.culprit])
+            self.status = "deleting internal event"
+        elif self.diverge_event.type == scribe.EventResourceLockExtra.native_type:
+            def is_resource_orphan(e):
+                if not e.is_a(scribe.EventResourceLockExtra):
+                    return False
+                if e.has_syscall():
+                    return False
+                return True
+            events = list(itertools.takewhile(
+                    lambda e: not is_resource_orphan(e),
+                    head(self.proc.events.after(self.culprit), self.explorer.max_delete)))
+            events.insert(0, self.culprit)
+            self.delete_event(events)
+            self.status = "deleting until next out-of-syscall resource (signal ?)"
+
+        else:
+            self.status = "dont know what to do"
 
     def handle_syscall(self):
         add_location = None
